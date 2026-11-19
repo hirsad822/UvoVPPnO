@@ -19,7 +19,7 @@ class HTTPSTests(unittest.TestCase):
             cert, key = root / 'cert.pem', root / 'key.pem'
             subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
                             '-keyout', str(key), '-out', str(cert), '-days', '1',
-                            '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost'],
+                            '-subj', '/CN=localhost', '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'],
                            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             settings = Settings(data_dir=root, config_dir=root, db_path=root / 'db', token='test')
             app = App(settings)
@@ -53,6 +53,13 @@ class HTTPSTests(unittest.TestCase):
                 self.assertEqual(response.getheader('Cache-Control'), 'no-store')
                 response.read()
                 conn.close()
+                ip_conn = http.client.HTTPSConnection('127.0.0.1', server.server_port,
+                                                     context=ssl.create_default_context(cafile=str(cert)))
+                ip_conn.request('GET', '/api/health')
+                response = ip_conn.getresponse()
+                self.assertEqual(response.status, 200)
+                response.read()
+                ip_conn.close()
             finally:
                 server.shutdown()
                 thread.join()

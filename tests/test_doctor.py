@@ -20,7 +20,7 @@ class TestDoctor(unittest.TestCase):
         srv.bind(("127.0.0.1", 0))
         port = srv.getsockname()[1]
         srv.listen(5)
-        t = threading.Thread(target=lambda: srv.accept(), daemon=True)
+        t = threading.Thread(target=lambda: srv.accept()[0].close(), daemon=True)
         t.start()
         try:
             r = run_diagnostics("127.0.0.1", port, probes=3)

@@ -73,5 +73,16 @@ class CoreTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 validate_certificate('example.com', cert, Path(tmp) / 'missing')
 
+    def test_certificate_validation_with_ip_san(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cert, key = Path(tmp) / 'cert.pem', Path(tmp) / 'key.pem'
+            subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes',
+                            '-keyout', str(key), '-out', str(cert), '-days', '1',
+                            '-subj', '/CN=test', '-addext', 'subjectAltName=IP:8.8.8.8'],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.assertEqual(len(validate_certificate('8.8.8.8', cert, key)), 64)
+            with self.assertRaises(ValueError):
+                validate_certificate('8.8.4.4', cert, key)
+
 if __name__ == '__main__':
     unittest.main()

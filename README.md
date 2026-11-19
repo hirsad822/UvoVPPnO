@@ -8,33 +8,32 @@ the installer downloads a pinned Xray release and verifies its SHA-256 hash.
 ## Requirements
 
 - Linux with systemd, Python 3.10+, root access, curl and unzip; x86_64 or arm64.
-- A domain whose public DNS points to the server. Ports **80/TCP** (certificate
+- A public IPv4 address, or a domain whose DNS points to the server. Ports **80/TCP** (certificate
   issuance/renewal), **8080/TCP** (dashboard), and **10000/TCP** (core) must be
   reachable; restrict dashboard access to trusted IPs where possible.
-- Port 80 must be free while Certbot uses the standalone challenge. The domain
+- Port 80 must be free while Certbot uses the standalone challenge. The public IP or domain
   must be publicly reachable for Let's Encrypt to issue a certificate.
-- The server needs access to GitHub releases and Let's Encrypt.
+- The server needs access to GitHub releases, PyPI and Let's Encrypt.
 
 ## Installation and updates
 
 After these changes are merged to `main`, download the installer and provide your
-actual domain (do not include `https://`):
+public IPv4 address (do not include `https://`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/hirsad822/UvoVPPnO/main/install.sh -o install.sh
-sudo env PULSEGRID_PUBLIC_HOST=example.com bash install.sh
+sudo env PULSEGRID_PUBLIC_HOST=YOUR_PUBLIC_IPV4 bash install.sh
 ```
 
 For an existing installation use the same command with `--update` after
 `install.sh`. To test a branch before merging, download that branch's installer
-and set `PULSEGRID_REF` to the same branch name. The installer installs Certbot
-if necessary, requests a certificate using its standalone HTTP challenge,
+and set `PULSEGRID_REF` to the same branch name. The installer installs a dedicated Certbot virtual environment, requests a certificate using its standalone HTTP challenge,
 installs Xray and enables the service. An already issued certificate in
-`/etc/letsencrypt/live/<domain>/` is reused. Alternatively supply your own
+`/etc/letsencrypt/live/<IP-or-domain>/` is reused. Alternatively supply your own
 certificate and private key using `PULSEGRID_TLS_CERT` and `PULSEGRID_TLS_KEY`.
 
 The installer prints the dashboard URL, token and service commands. Open
-`https://example.com:8080`, enter the token, add a user, wait a few seconds,
+`https://YOUR_PUBLIC_IPV4:8080`, enter the token, add a user, wait a few seconds,
 then click **Check all health** and copy the subscription. Both the dashboard
 and managed Xray core use TLS. Subscription URLs contain credentials; keep them
 private and share them only with the intended user. Old subscription URLs using
@@ -60,8 +59,11 @@ core TLS handshakes.
 
 For Certbot-managed certificates, a deploy hook copies each renewed certificate
 and key into PulseGrid's restricted configuration directory and restarts the
-service. Ensure the Certbot renewal timer is enabled (`systemctl list-timers`
-and `certbot renew --dry-run`) and port 80 remains available for the challenge.
+service. IP certificates have a roughly six-day lifetime: automatic renewal is
+critical. The installer enables `pulsegrid-certbot-renew.timer` to check twice
+daily. Check it with `systemctl status pulsegrid-certbot-renew.timer` and test
+with `sudo /opt/pulsegrid-certbot/bin/certbot renew --dry-run`. Port 80 must
+remain available for the challenge.
 Renewal can fail if another web server occupies port 80. Certbot dry-runs do not
 necessarily execute deploy hooks; test the hook according to your Certbot version.
 For custom certificates, after renewal run:
@@ -70,8 +72,10 @@ For custom certificates, after renewal run:
 sudo /opt/pulsegrid/scripts/deploy-cert.sh example.com /path/fullchain.pem /path/privkey.pem --restart
 ```
 
-PulseGrid checks that the certificate matches the domain, is valid by date and
-matches the private key. Clients and the Doctor additionally verify trust in the
+PulseGrid checks that the certificate matches the IP or domain, is valid by date and
+matches the private key. The IP must be directly reachable from the public internet;
+private or shared addresses cannot obtain a public certificate. IPv6 is not yet
+supported by this installer. Clients and the Doctor additionally verify trust in the
 issuing CA. A self-signed certificate will not pass normal client verification.
 
 ## Development and verification
@@ -82,11 +86,11 @@ PULSEGRID_DATA_DIR=/tmp/pulsegrid-data PULSEGRID_CONFIG_DIR=/tmp/pulsegrid-confi
   python3 -m pulsegrid --host 127.0.0.1 --port 8080 --token dev-token
 bash scripts/verify.sh http://127.0.0.1:8080 dev-token
 # After production install:
-bash /opt/pulsegrid/scripts/verify.sh https://example.com:8080 "$(sudo cat /etc/pulsegrid/token)"
+bash /opt/pulsegrid/scripts/verify.sh https://YOUR_PUBLIC_IPV4:8080 "$(sudo cat /etc/pulsegrid/token)"
 ```
 
 Local development defaults to HTTP and does not launch Xray without its binary,
-domain and certificates. Production TLS is enabled by the generated systemd
+public IP or domain and certificates. Production TLS is enabled by the generated systemd
 configuration. The Doctor verifies certificates; unchecked or failed TLS nodes
 are not included in subscriptions. Install/update/status operations require root.
 

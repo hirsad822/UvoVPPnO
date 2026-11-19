@@ -174,38 +174,81 @@ install_core() {
   /opt/pulsegrid-core/xray version | head -n 1
 }
 
+install_certbot() {
+  local venv=/opt/pulsegrid-certbot
+  if [ -x "$venv/bin/certbot" ] && "$venv/bin/certbot" --version 2>/dev/null | grep -q "certbot 5.4.0"; then return; fi
+  log "Installing a dedicated Certbot 5.4 for IP certificate support..."
+  if ! python3 -m venv "$venv"; then
+    case "$PKG" in
+      apt) apt-get update -qq && apt-get install -y python3-venv ;;
+      dnf) dnf install -y python3-pip ;;
+      apk) apk add --no-cache py3-pip ;;
+      pacman) pacman -Sy --noconfirm python-pip ;;
+      *) die "Install Python venv support to obtain certificates" ;;
+    esac
+    rm -rf "$venv"
+    python3 -m venv "$venv" || die "Could not create the Certbot virtual environment"
+  fi
+  "$venv/bin/python" -m pip install 'certbot==5.4.0' || die "Certbot installation failed; check PyPI access"
+}
+
+install_renewal_timer() {
+  local lineage=$1
+  cat > /etc/systemd/system/pulsegrid-certbot-renew.service <<EOF
+[Unit]
+Description=Renew PulseGrid certificate
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/pulsegrid-certbot/bin/certbot renew --quiet --cert-name $lineage
+EOF
+  cat > /etc/systemd/system/pulsegrid-certbot-renew.timer <<'EOF'
+[Unit]
+Description=Check PulseGrid certificate renewal twice daily
+
+[Timer]
+OnCalendar=*-*-* 00,12:00:00
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now pulsegrid-certbot-renew.timer || die "Could not enable certificate renewal timer"
+}
+
 configure_core() {
-  local core_env="$CONFIG_DIR/core.env" host core_port saved_host="" saved_port="" cert key certbot_managed="0"
+  local core_env="$CONFIG_DIR/core.env" host core_port saved_host="" saved_port="" saved_lineage="" cert key certbot_managed="0" kind lineage
   if [ -f "$core_env" ]; then
     saved_host=$(sed -n 's/^PULSEGRID_PUBLIC_HOST=//p' "$core_env")
     saved_port=$(sed -n 's/^PULSEGRID_CORE_PORT=//p' "$core_env")
+    saved_lineage=$(sed -n 's/^PULSEGRID_CERTBOT_LINEAGE=//p' "$core_env")
     certbot_managed=$(sed -n 's/^PULSEGRID_CERTBOT_MANAGED=//p' "$core_env")
   fi
   host="${PULSEGRID_PUBLIC_HOST:-$saved_host}"
   core_port="${PULSEGRID_CORE_PORT:-${saved_port:-10000}}"
-  [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ && "$host" == *.* ]] || die "Set PULSEGRID_PUBLIC_HOST to your public domain"
+  kind=$(cd "$APP_DIR" && python3 -m pulsegrid.address "$host") || die "Set PULSEGRID_PUBLIC_HOST to a public IPv4 address or domain"
   [[ "$core_port" =~ ^[0-9]+$ ]] && (( core_port >= 1024 && core_port <= 65535 && core_port != PORT )) || die "Invalid core port (must be 1024-65535 and differ from dashboard port)"
+  lineage="/etc/letsencrypt/live/$host"
   if [[ -n "${PULSEGRID_TLS_CERT:-}" || -n "${PULSEGRID_TLS_KEY:-}" ]]; then
     [[ -n "${PULSEGRID_TLS_CERT:-}" && -n "${PULSEGRID_TLS_KEY:-}" ]] || die "Provide both PULSEGRID_TLS_CERT and PULSEGRID_TLS_KEY"
     cert=$PULSEGRID_TLS_CERT; key=$PULSEGRID_TLS_KEY
-    case "$cert" in /etc/letsencrypt/live/*/fullchain.pem) certbot_managed=1 ;; *) certbot_managed=0 ;; esac
-  elif [ -f "$CONFIG_DIR/tls-current/fullchain.pem" ]; then
+    case "$cert" in /etc/letsencrypt/live/*/fullchain.pem) certbot_managed=1; lineage="${cert%/fullchain.pem}" ;; *) certbot_managed=0 ;; esac
+  elif [ "$host" = "$saved_host" ] && [ -f "$CONFIG_DIR/tls-current/fullchain.pem" ]; then
     cert="$CONFIG_DIR/tls-current/fullchain.pem"; key="$CONFIG_DIR/tls-current/privkey.pem"
+    [ -z "$saved_lineage" ] || lineage="$saved_lineage"
   else
-    cert="/etc/letsencrypt/live/$host/fullchain.pem"; key="/etc/letsencrypt/live/$host/privkey.pem"
+    cert="$lineage/fullchain.pem"; key="$lineage/privkey.pem"
+    install_certbot
     if [ ! -f "$cert" ]; then
-      if ! command -v certbot >/dev/null 2>&1; then
-        log "Installing Certbot for automatic TLS certificate issuance..."
-        case "$PKG" in
-          apt) apt-get update -qq && apt-get install -y certbot ;;
-          dnf) dnf install -y certbot ;;
-          apk) apk add --no-cache certbot ;;
-          pacman) pacman -Sy --noconfirm certbot ;;
-          *) die "Install certbot or provide PULSEGRID_TLS_CERT and PULSEGRID_TLS_KEY" ;;
-        esac
+      log "Requesting a public TLS certificate for $host. Port 80 must be reachable and free."
+      if [ "$kind" = ip ]; then
+        /opt/pulsegrid-certbot/bin/certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email --preferred-profile shortlived --cert-name "$host" --ip-address "$host" || die "IP certificate issuance failed; check public IP and TCP port 80. Existing service may still be running."
+      else
+        /opt/pulsegrid-certbot/bin/certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email --cert-name "$host" -d "$host" || die "Certificate issuance failed; check DNS and TCP port 80. Existing service may still be running."
       fi
-      log "Requesting a certificate for $host. DNS must point here and port 80 must be reachable and free."
-      certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$host" || die "Certificate issuance failed; check DNS and TCP port 80. Existing service may still be running."
     fi
     certbot_managed=1
   fi
@@ -213,13 +256,16 @@ configure_core() {
   if [ "$cert" != "$CONFIG_DIR/tls-current/fullchain.pem" ]; then
     bash "$APP_DIR/scripts/deploy-cert.sh" "$host" "$cert" "$key" || die "Could not install TLS certificate"
   fi
-  printf 'PULSEGRID_PUBLIC_HOST=%s\nPULSEGRID_CORE_PORT=%s\nPULSEGRID_DASHBOARD_TLS=1\nPULSEGRID_CERTBOT_MANAGED=%s\nXRAY_LOCATION_ASSET=/opt/pulsegrid-core\n' "$host" "$core_port" "${certbot_managed:-0}" > "$core_env"
+  printf 'PULSEGRID_PUBLIC_HOST=%s\nPULSEGRID_CORE_PORT=%s\nPULSEGRID_DASHBOARD_TLS=1\nPULSEGRID_CERTBOT_MANAGED=%s\nPULSEGRID_CERTBOT_LINEAGE=%s\nXRAY_LOCATION_ASSET=/opt/pulsegrid-core\n' "$host" "$core_port" "${certbot_managed:-0}" "$lineage" > "$core_env"
   chown pulsegrid:pulsegrid "$core_env"; chmod 600 "$core_env"
   if [ "${certbot_managed:-0}" = 1 ]; then
+    install_certbot
     mkdir -p /etc/letsencrypt/renewal-hooks/deploy
     install -m 755 "$APP_DIR/scripts/certbot-deploy.sh" /etc/letsencrypt/renewal-hooks/deploy/pulsegrid
-    log "Certbot renewal deploy hook installed. Ensure certbot's renewal timer is active and port 80 remains reachable."
+    install_renewal_timer "$(basename "$lineage")"
+    log "Automatic renewal timer and deploy hook installed. Keep TCP port 80 reachable and free."
   else
+    systemctl disable --now pulsegrid-certbot-renew.timer 2>/dev/null || true
     rm -f /etc/letsencrypt/renewal-hooks/deploy/pulsegrid
     warn "Custom TLS certificate: reinstall it with scripts/deploy-cert.sh after each renewal."
   fi
@@ -362,9 +408,10 @@ do_uninstall() {
   for a in "$@"; do [ "$a" = "--purge" ] && PURGE=1; done
   log "Uninstalling PulseGrid..."
   systemctl disable --now "$APP_NAME" 2>/dev/null || true
-  rm -f "$SERVICE_FILE" /etc/letsencrypt/renewal-hooks/deploy/pulsegrid
+  systemctl disable --now pulsegrid-certbot-renew.timer 2>/dev/null || true
+  rm -f "$SERVICE_FILE" /etc/letsencrypt/renewal-hooks/deploy/pulsegrid /etc/systemd/system/pulsegrid-certbot-renew.service /etc/systemd/system/pulsegrid-certbot-renew.timer
   systemctl daemon-reload 2>/dev/null || true
-  rm -rf "$APP_DIR" /opt/pulsegrid-core
+  rm -rf "$APP_DIR" /opt/pulsegrid-core /opt/pulsegrid-certbot
   if [ "$PURGE" = "1" ]; then
     rm -rf "$DATA_DIR" "$CONFIG_DIR"
     log "Purged data & config."
