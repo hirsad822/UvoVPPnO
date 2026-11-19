@@ -30,7 +30,7 @@
   <section class="hero"><div><div class="eyebrow"><span class="live-dot"></span> YOUR NETWORK, IN FOCUS</div><h1>Clarity for every<br><em>connection.</em></h1><p>Manage your network, keep an eye on health, and bring users online from one place.</p><a href="#workspace" class="hero-link">Explore your workspace <span>↗</span></a></div><div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core">✳</div><div class="orbit-label">NETWORK<br><strong>IN SYNC</strong></div></div></section>
   <div class="section-title" id="workspace"><div><div class="eyebrow">THE OVERVIEW</div><h2>Your workspace</h2></div><span class="muted">A quick look at your network</span></div>
   <section class="cards" id="summaryCards"></section>
-  <div class="notice"><strong>Core connection · VLESS / TLS</strong><span>The managed core requires a valid certificate for your public IP or domain. Traffic metering and quota enforcement are not integrated. Run “Check all health” before copying a subscription. The installed dashboard also uses HTTPS.</span></div>
+  <div class="notice"><strong>Core connection · VLESS / TLS</strong><span>The managed core requires a valid certificate for your public IP or domain. Traffic metering and quota enforcement are not integrated. The quick setup checks local TLS automatically; public connectivity is not verified. The installed dashboard also uses HTTPS.</span></div>
 
   <section class="panel">
     <div class="panel-head"><h2>⚡ Smart Presets <span class="muted" id="modeLabel">Simple Mode</span></h2></div>
@@ -60,28 +60,20 @@
     <p class="muted">Score: <b id="doctorScore">—</b>/100</p>
   </section>
 
-  <div class="two-col">
-    <section class="panel">
-      <div class="panel-head"><h2>🌐 Nodes</h2><button id="checkAllBtn" class="btn small">Check all health</button></div>
-      <div class="row">
-        <input id="nodeName" placeholder="Name"><input id="nodeHost" placeholder="Host">
-        <input id="nodePort" type="number" value="443" style="max-width:90px">
-        <button id="addNodeBtn" class="btn primary small">+ Add</button>
-      </div>
-      <div id="nodeList"></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head"><h2>👥 Users</h2></div><p class="muted">کاربر بسازید، سپس «نمایش کانفیگ» را بزنید. همگام‌سازی با هسته چند ثانیه طول می‌کشد. محدودیت حجم توسط Xray اعمال نمی‌شود.</p>
-      <div class="row">
-        <input id="userName" placeholder="Username">
-        <input id="userQuota" type="number" value="50" style="max-width:90px" title="Quota GB">
-        <input id="userDays" type="number" value="30" style="max-width:90px" title="Days">
-        <button id="addUserBtn" class="btn primary small">+ Add</button>
-      </div>
-      <div id="userList"></div>
-    </section>
-  </div>
+  <section class="panel quick-create" dir="rtl">
+    <div class="panel-head"><h2>ساخت سریع کانفیگ Xray</h2></div>
+    <p class="muted">فقط یک نام وارد کنید؛ کاربر مستقیماً روی هستهٔ محلی ساخته می‌شود. کانفیگ پیش‌فرض بدون محدودیت زمان و حجم است.</p>
+    <div class="row">
+      <input id="userName" maxlength="80" placeholder="نام کاربر" aria-label="نام کاربر">
+      <button id="addUserBtn" class="btn primary">ساخت کانفیگ</button>
+    </div>
+    <p class="muted">اتصال TLS محلی بررسی می‌شود؛ دسترسی از اینترنت به پورت هسته باید جداگانه باز باشد. محدودیت حجم توسط Xray اعمال نمی‌شود.</p>
+    <div id="quickResult" class="config-results" hidden aria-live="polite"></div>
+  </section>
+  <section class="panel" dir="rtl">
+    <div class="panel-head"><h2>👥 کاربران و کانفیگ‌ها</h2></div>
+    <div id="userList"></div>
+  </section>
 
   <section class="panel">
     <div class="panel-head"><h2>📊 Traffic & Alerts</h2></div>

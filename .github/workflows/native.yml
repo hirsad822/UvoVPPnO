@@ -21,3 +21,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --manifest-path next/rust/health/Cargo.toml
+      - run: |
+          rustc --edition 2021 -O next/rust/health/src/main.rs -o /tmp/pulsegrid-health
+          test "$(/tmp/pulsegrid-health 10 0 true true true)" = 100
+          test "$(/tmp/pulsegrid-health 10 0 false true true)" = 0

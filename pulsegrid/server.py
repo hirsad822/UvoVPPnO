@@ -12,6 +12,7 @@ from pathlib import Path
 from .api import API
 from .config import Settings
 from .db import DB
+from .subscription import _node_link
 
 
 class App:
@@ -20,6 +21,7 @@ class App:
         self.settings = settings
         self.db = DB(settings.db_path)
         self.api = API(self.db, settings)
+        self.core = None
 
     def check_auth(self, headers) -> bool:
         auth = headers.get("Authorization", "")
@@ -133,6 +135,29 @@ def make_handler(app: App):
             if not app.check_auth(self.headers):
                 return self._json({"error": "unauthorized"}, 401)
             body = self._body()
+            if path == "/api/configs/quick":
+                if not isinstance(body, dict):
+                    return self._json({"error": "Invalid request"}, 400)
+                name = body.get("name", "")
+                if not isinstance(name, str) or not (1 <= len(name.strip()) <= 80):
+                    return self._json({"error": "نام کاربر باید بین ۱ تا ۸۰ حرف باشد."}, 400)
+                core = app.core
+                if not core or not core.wait_ready(timeout=2):
+                    return self._json({"error": "هسته Xray یا TLS آماده نیست؛ وضعیت سرویس و گواهی را بررسی کنید."}, 503)
+                user = app.api.create_user({"name": name.strip(), "quota_gb": 0, "days": 0})
+                core.request_sync()
+                if not core.wait_ready(user["uuid"], timeout=20):
+                    return self._json({"error": "کاربر ساخته شد، اما Xray هنوز آماده نیست. دوباره کاربر نسازید؛ از بخش کاربران وضعیت را بررسی کنید.",
+                                       "user_id": user["id"]}, 503, {"Cache-Control": "no-store"})
+                node = app.db.get_node(app.db.get_setting("managed_core_node"))
+                if not node or not node["enabled"] or node["host"] != core.host or node["port"] != core.port or node["security"] != "tls":
+                    return self._json({"error": "کاربر ساخته شد، اما تنظیمات هسته در دسترس نیست.", "user_id": user["id"]}, 503)
+                # The local TLS check does not establish public reachability.
+                app.db.record_health(node["id"], 80, 0, 0, True, "Verified local Xray TLS; external reachability not tested")
+                return self._json({"user_id": user["id"], "user_uuid": user["uuid"],
+                                   "link": _node_link(node, user["uuid"]),
+                                   "note": "Local TLS verified; external connectivity is not verified."}, 201,
+                                  {"Cache-Control": "no-store"})
             if path == "/api/nodes":
                 return self._json(app.api.create_node(body), 201)
             if path == "/api/users":
@@ -184,6 +209,8 @@ def serve(settings: Settings) -> None:
     app = App(settings)
     from .core import CoreSupervisor
     core = CoreSupervisor(settings)
+    app.core = core
+    app.api.managed_only = bool(core.host)
     handler = make_handler(app)
     httpd = ThreadingHTTPServer((settings.host, settings.port), handler)
     scheme = "http"

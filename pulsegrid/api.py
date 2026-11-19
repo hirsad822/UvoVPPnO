@@ -14,6 +14,7 @@ class API:
     def __init__(self, db, settings):
         self.db = db
         self.settings = settings
+        self.managed_only = False
 
     # -- dashboard -------------------------------------------------------
     def dashboard(self) -> dict:
@@ -151,10 +152,17 @@ class API:
         user = self.db.get_user(user_id)
         if not user:
             raise KeyError("user not found")
-        nodes = self.db.list_nodes(enabled_only=True)
+        nodes = self.subscription_nodes()
         health = self.db.all_latest_health()
         return build_subscription(user, nodes, health, fmt=fmt,
                                   min_score=min_score if min_score is not None else self.settings.min_score)
+
+    def subscription_nodes(self):
+        nodes = self.db.list_nodes(enabled_only=True)
+        if self.managed_only:
+            node_id = self.db.get_setting("managed_core_node")
+            return [node for node in nodes if node["id"] == node_id]
+        return nodes
 
     def user_configs(self, user_id: str) -> dict:
         """Admin-only explanation and usable links, respecting subscription filters."""
@@ -162,7 +170,7 @@ class API:
         if not user:
             raise KeyError("user not found")
         sub = self.subscription(user_id, fmt="plain")
-        nodes = self.db.list_nodes(enabled_only=True)
+        nodes = self.subscription_nodes()
         checks = self.db.all_latest_health()
         if sub["meta"]["status"] != "active":
             reason = sub["meta"]["status"]

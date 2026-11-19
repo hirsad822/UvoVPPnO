@@ -1,6 +1,9 @@
 """Health scoring & node ranking (0–100 weighted composite)."""
 from __future__ import annotations
 
+import os
+import subprocess
+
 
 def score_health(latency_ms: float = 0, loss_pct: float = 0, reachable: bool = True,
                  tls_ok: bool = True, service_ok: bool = True, dns_ok: bool = True) -> int:
@@ -8,6 +11,19 @@ def score_health(latency_ms: float = 0, loss_pct: float = 0, reachable: bool = T
 
     Weights: latency 30% · loss 25% · reachability 20% · TLS 15% · service 10%.
     """
+    native = os.environ.get("PULSEGRID_HEALTH_BIN")
+    if native:
+        try:
+            result = subprocess.run([native, str(latency_ms), str(loss_pct),
+                                     str(bool(reachable)).lower(), str(bool(tls_ok)).lower(),
+                                     str(bool(service_ok)).lower()], check=True,
+                                    capture_output=True, text=True, timeout=3)
+            score = int(result.stdout.strip())
+            if not 0 <= score <= 100:
+                raise ValueError("native score out of range")
+            return score
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("Rust health worker failed") from exc
     if not reachable:
         return 0
     # Latency component (0-30): <50ms=30, 50-100=24, 100-150=18, 150-250=10, >250=4

@@ -5,12 +5,12 @@ connection doctor, health-filtered subscription links, advisory presets, and a
 managed Xray core. The Python dashboard has no third-party Python dependencies;
 the installer downloads a pinned Xray release and verifies its SHA-256 hash.
 Xray is written in Go. The dashboard and supervisor currently use Python; the
-installer builds a Go TLS validator. A Rust health-scoring library is under
-development and is not yet used by the running service; see [migration status](next/README.md).
+installer builds a Go TLS validator and a Rust health-scoring worker. The API,
+storage and Xray supervisor have not yet been migrated; see [migration status](next/README.md).
 
 ## Requirements
 
-- Linux with systemd, Python 3.10+, Go 1.19+, root access, curl and unzip; x86_64 or arm64.
+- Linux with systemd, Python 3.10+, Go 1.19+, rustc, root access, curl and unzip; x86_64 or arm64.
 - A public IPv4 address, or a domain whose DNS points to the server. Ports **80/TCP** (certificate
   issuance/renewal), **8080/TCP** (dashboard), and **10000/TCP** (core) must be
   reachable; restrict dashboard access to trusted IPs where possible.
@@ -37,7 +37,9 @@ certificate and private key using `PULSEGRID_TLS_CERT` and `PULSEGRID_TLS_KEY`.
 
 The installer prints the dashboard URL, token and service commands. Open
 `https://YOUR_PUBLIC_IPV4:8080`, enter the token, add a user, wait a few seconds,
-then click **Check all health** and copy the subscription. Both the dashboard
+then enter a name and click **ساخت کانفیگ**. The panel synchronizes the user
+to the managed Xray core and displays a VLESS link after verifying local TLS.
+Both the dashboard
 and managed Xray core use TLS. Subscription URLs contain credentials; keep them
 private and share them only with the intended user. Old subscription URLs using
 short user IDs are no longer accepted; copy new links after upgrading.
@@ -94,7 +96,8 @@ bash /opt/pulsegrid/scripts/verify.sh https://YOUR_PUBLIC_IPV4:8080 "$(sudo cat 
 
 Local development defaults to HTTP and does not launch Xray without its binary,
 public IP or domain and certificates. Production TLS is enabled by the generated systemd
-configuration. The Doctor verifies certificates; unchecked or failed TLS nodes
+configuration. The managed core is checked locally using verified TLS; this does not prove that
+the server is reachable from the internet. Failed or unchecked managed cores
 are not included in subscriptions. Install/update/status operations require root.
 
 ## Important limitations
@@ -105,8 +108,10 @@ are not included in subscriptions. Install/update/status operations require root
   Do not use the quota display for billing or as an access-control guarantee.
 - User changes and expiry are synchronized approximately every five seconds;
   existing connections may remain open. Do not rely on immediate revocation.
-- The health score reflects the latest check, not continuous monitoring. Run
-  **Check all health** before copying a new subscription.
+- Local TLS readiness does not establish public network reachability. Check the
+  core port from outside the server. The health score reflects the latest check.
+- Manual node management is hidden from the panel. Existing node records are
+  preserved, but production subscriptions use only the managed local core.
 - Use only in accordance with applicable laws and regulations.
 
 See [architecture](docs/ARCHITECTURE.md), [product](docs/PRODUCT.md), and

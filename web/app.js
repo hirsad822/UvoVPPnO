@@ -29,11 +29,10 @@ async function refresh() {
     $("#expertPanel").hidden = mode !== "expert";
     const s = d.summary;
     $("#summaryCards").innerHTML = [
-      ["Nodes", s.total_nodes], ["Healthy", s.healthy_nodes],
       ["Users", s.total_users], ["Active", s.active_users],
       ["Traffic", s.total_traffic_human], ["Preset", d.active_preset],
     ].map(([l, n]) => `<div class="card"><div class="num">${esc(n)}</div><div class="lbl">${esc(l)}</div></div>`).join("");
-    renderNodes(d.nodes); renderUsers(d.users); renderTraffic(d.traffic, d.alerts);
+    renderUsers(d.users); renderTraffic(d.traffic, d.alerts);
     renderPresets(d.active_preset);
   } catch (e) { toast(e.message); }
 }
@@ -54,15 +53,6 @@ async function renderPresets(active) {
   });
 }
 
-function renderNodes(nodes) {
-  $("#nodeList").innerHTML = nodes.length ? nodes.map((n) => `
-    <div class="item"><div><b>${esc(n.name)}</b> <span class="badge ${esc(n.verdict)}">${esc(n.verdict)} ${n.health_score}</span>
-      <div class="meta">${esc(n.host)}:${esc(n.port)} · ${esc(n.protocol)}/${esc(n.transport)} · ${esc(n.latency_ms)}ms · loss ${esc(n.loss_pct)}%</div>
-      <div class="meta">${esc(n.health_detail || "Not checked yet — use Check all health.")}</div></div>
-      <div class="actions"><button class="btn small" data-del-node="${esc(n.id)}">Delete</button></div></div>`).join("")
-    : '<p class="muted">No nodes yet. Add one above.</p>';
-  document.querySelectorAll("[data-del-node]").forEach((b) => b.addEventListener("click", async () => { await api(`/api/nodes/${b.dataset.delNode}`, { method: "DELETE" }); refresh(); }));
-}
 
 function renderUsers(users) {
   $("#userList").innerHTML = users.length ? users.map((u) => `
@@ -85,9 +75,9 @@ function renderUsers(users) {
       box.replaceChildren();
       if (!result.links.length) {
         const messages = {
-          no_nodes: "نود فعالی وجود ندارد. وضعیت نصب هسته و بخش Nodes را بررسی کنید.",
-          unchecked: "نود هنوز بررسی نشده است. در بخش Nodes دکمه Check all health را بزنید و دوباره تلاش کنید.",
-          no_healthy_nodes: "نود سالمی پیدا نشد. Check all health را بزنید و نتیجه، پورت و TLS را بررسی کنید.",
+          no_nodes: "هسته Xray آماده نیست؛ وضعیت سرویس و گواهی TLS را بررسی کنید.",
+          unchecked: "هسته هنوز بررسی نشده است. یک کانفیگ جدید بسازید یا وضعیت سرویس را بررسی کنید.",
+          no_healthy_nodes: "هسته سالم تشخیص داده نشد؛ وضعیت سرویس، پورت و TLS را بررسی کنید.",
           expired: "اعتبار این کاربر تمام شده است.",
           disabled: "این کاربر غیرفعال است.",
           quota_exceeded: "سهمیه ثبت‌شده کاربر تمام شده است."
@@ -178,14 +168,34 @@ $("#applyExpertBtn").addEventListener("click", async () => {
   }) });
   toast("Expert overrides applied"); refresh();
 });
-$("#addNodeBtn").addEventListener("click", async () => {
-  await api("/api/nodes", { method: "POST", body: JSON.stringify({ name: $("#nodeName").value || "node", host: $("#nodeHost").value || "127.0.0.1", port: parseInt($("#nodePort").value || "443", 10) }) });
-  toast("Node added"); refresh();
-});
-$("#checkAllBtn").addEventListener("click", async () => { toast("Checking…"); await api("/api/doctor/check-all", { method: "POST", body: "{}" }); toast("Health check complete"); refresh(); });
 $("#addUserBtn").addEventListener("click", async () => {
-  await api("/api/users", { method: "POST", body: JSON.stringify({ name: $("#userName").value || "user", quota_gb: parseFloat($("#userQuota").value || "0"), days: parseFloat($("#userDays").value || "0") }) });
-  toast("User added — copy the subscription link"); refresh();
+  const button = $("#addUserBtn");
+  const box = $("#quickResult");
+  const name = $("#userName").value.trim();
+  box.hidden = false;
+  box.replaceChildren();
+  if (!name) { box.textContent = "نام کاربر را وارد کنید."; return; }
+  button.disabled = true;
+  box.textContent = "در حال ساخت کاربر و بررسی هسته Xray…";
+  try {
+    const result = await api("/api/configs/quick", { method: "POST", body: JSON.stringify({ name }) });
+    box.replaceChildren();
+    const message = document.createElement("p");
+    message.textContent = "کانفیگ آماده است. این لینک شخصی است و نباید عمومی شود.";
+    const field = document.createElement("textarea");
+    field.rows = 3; field.readOnly = true; field.value = result.link;
+    field.setAttribute("aria-label", "VLESS configuration");
+    const copy = document.createElement("button");
+    copy.className = "btn small primary"; copy.textContent = "کپی کانفیگ";
+    copy.addEventListener("click", async () => {
+      try { if (!navigator.clipboard) throw new Error(); await navigator.clipboard.writeText(result.link); toast("کانفیگ کپی شد"); }
+      catch { field.focus(); field.select(); toast("لینک را انتخاب و کپی کنید"); }
+    });
+    box.append(message, field, copy);
+    $("#userName").value = "";
+    await refresh();
+  } catch (e) { box.textContent = e.message; await refresh(); }
+  finally { button.disabled = false; }
 });
 
 if (token) { api("/api/dashboard").then(showApp).catch(showLogin); } else { showLogin(); }

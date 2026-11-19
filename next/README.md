@@ -7,8 +7,9 @@ replacement for the current service or uninstall Python yet.
 - `go/cmd/tlscheck`: the Go certificate/key and IP/DNS identity validator. The
   installer builds it and uses it during installation and certificate deployment.
   This is not a public CA trust check: dashboard and core clients verify trust.
-- `rust/health`: a Rust port of the health score and verdict calculation. It is
-  not yet wired into the Doctor or production service.
+- `rust/health`: a Rust health score and verdict implementation. The installer builds a
+  worker and configures the running service to use it for Doctor scoring. Local
+  development without the worker uses the legacy Python implementation.
 
 Build and test with Go 1.19+ and stable Rust:
 

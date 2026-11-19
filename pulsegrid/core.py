@@ -5,6 +5,9 @@ The managed transport is VLESS over TCP with TLS; see the deployment guide.
 import json
 import logging
 import os
+import socket
+import ssl
+import time
 import subprocess
 import threading
 from pathlib import Path
@@ -36,6 +39,8 @@ class CoreSupervisor:
         self.cert_path = settings.config_dir / "tls-current" / "fullchain.pem"
         self.key_path = settings.config_dir / "tls-current" / "privkey.pem"
         self.stop_event = threading.Event()
+        self.wake_event = threading.Event()
+        self.lock = threading.RLock()
         self.process = None
         self.thread = None
         self.last_config = None
@@ -62,17 +67,30 @@ class CoreSupervisor:
         db = DB(self.settings.db_path)
         try:
             while not self.stop_event.is_set():
+                self.wake_event.clear()
                 try:
                     self.reconcile(db)
                 except Exception:
-                    self._stop_process()
-                    self.last_config = None
+                    with self.lock:
+                        self._stop_process()
+                        self.last_config = None
                     node_id = db.get_setting("managed_core_node")
                     if node_id and db.get_node(node_id) and db.get_node(node_id)["enabled"]:
                         db.update_node(node_id, enabled=0)
                         db.set_setting("managed_core_tls_disabled", "1")
                     log.exception("Xray reconciliation failed; managed node disabled")
-                self.stop_event.wait(5)
+                # Record only local readiness, never claim public reachability.
+                node_id = db.get_setting("managed_core_node")
+                node = db.get_node(node_id) if node_id else None
+                if node and node["enabled"]:
+                    ready = self.wait_ready(timeout=1)
+                    last = db.latest_health(node_id)
+                    score = 80 if ready else 0
+                    if not last or last["score"] != score or time.time() - last["checked_at"] >= 60:
+                        detail = ("Verified local Xray TLS; external reachability not tested" if ready
+                                  else "Local Xray TLS is not ready")
+                        db.record_health(node_id, score, 0, 0 if ready else 100, ready, detail)
+                self.wake_event.wait(5)
         finally:
             self._stop_process()
             db.close()
@@ -88,6 +106,10 @@ class CoreSupervisor:
         self.process = None
 
     def reconcile(self, db):
+        with self.lock:
+            self._reconcile(db)
+
+    def _reconcile(self, db):
         node_id = db.get_setting("managed_core_node")
         node = db.get_node(node_id) if node_id else None
         try:
@@ -129,7 +151,38 @@ class CoreSupervisor:
             db.record_health(node["id"], 0, 0, 100, False, "TLS restored; check again")
         # Health checks remain explicit: run Doctor/check-all before subscribing.
 
+    def request_sync(self):
+        self.wake_event.set()
+
+    def wait_ready(self, user_uuid=None, timeout=15):
+        """Check the running process has loaded the user and verified local TLS.
+
+        This is a local readiness check, not a test of external reachability.
+        """
+        if not self.thread or not self.thread.is_alive():
+            return False
+        deadline = time.monotonic() + timeout
+        while not self.stop_event.is_set():
+            with self.lock:
+                if self.process is not None and self.process.poll() is None and self.last_config:
+                    config = json.loads(self.last_config)
+                    clients = config["inbounds"][0]["settings"]["clients"]
+                    if user_uuid is None or any(c["id"] == user_uuid for c in clients):
+                        try:
+                            with socket.create_connection(("127.0.0.1", self.port), timeout=1) as sock:
+                                with ssl.create_default_context().wrap_socket(sock, server_hostname=self.host):
+                                    if self.process.poll() is None:
+                                        return True
+                        except (OSError, ssl.SSLError):
+                            pass
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self.stop_event.wait(min(0.2, remaining))
+        return False
+
     def stop(self):
         self.stop_event.set()
+        self.wake_event.set()
         if self.thread:
             self.thread.join(timeout=25)

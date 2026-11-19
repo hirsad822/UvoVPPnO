@@ -167,6 +167,25 @@ build_go_tlscheck() {
 }
 
 
+build_rust_health() {
+  if ! command -v rustc >/dev/null 2>&1; then
+    log "Installing Rust for the health worker..."
+    case "$PKG" in
+      apt) apt-get update -qq && apt-get install -y rustc ;;
+      dnf) dnf install -y rust ;;
+      apk) apk add --no-cache rust ;;
+      pacman) pacman -Sy --noconfirm rust ;;
+      *) die "Install rustc and retry" ;;
+    esac
+  fi
+  mkdir -p "$APP_DIR/bin"
+  rustc --edition 2021 -O "$APP_DIR/next/rust/health/src/main.rs" -o "$APP_DIR/bin/pulsegrid-health.tmp" || die "Rust worker build failed; existing service may still be running"
+  chmod 755 "$APP_DIR/bin/pulsegrid-health.tmp"
+  mv -f "$APP_DIR/bin/pulsegrid-health.tmp" "$APP_DIR/bin/pulsegrid-health"
+  [ "$("$APP_DIR/bin/pulsegrid-health" 10 0 true true true)" = 100 ] || die "Rust worker self-test failed"
+}
+
+
 install_core() {
   # Pinned upstream release and SHA-256 digests from GitHub release metadata.
   local asset digest tmp
@@ -307,6 +326,7 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/python3 -m pulsegrid --host 0.0.0.0 --port $PORT
 Environment=PULSEGRID_CONFIG_DIR=$CONFIG_DIR
 Environment=PULSEGRID_DATA_DIR=$DATA_DIR
+Environment=PULSEGRID_HEALTH_BIN=$APP_DIR/bin/pulsegrid-health
 EnvironmentFile=$CONFIG_DIR/core.env
 Restart=on-failure
 RestartSec=3
@@ -387,13 +407,13 @@ EOF
 do_install() {
   require_root; detect_os; install_deps; fetch_code
   python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "Python 3.10 or later is required"
-  setup_dirs_and_token; build_go_tlscheck; configure_core; install_core; write_service; firewall_hints; health_check; print_success
+  setup_dirs_and_token; build_go_tlscheck; build_rust_health; configure_core; install_core; write_service; firewall_hints; health_check; print_success
 }
 
 do_update() {
   require_root; detect_os; install_deps; fetch_code
   python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "Python 3.10 or later is required"
-  setup_dirs_and_token; build_go_tlscheck; configure_core; install_core; write_service
+  setup_dirs_and_token; build_go_tlscheck; build_rust_health; configure_core; install_core; write_service
   health_check
   log "Update complete. Data & token preserved."
   print_success

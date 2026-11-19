@@ -35,3 +35,17 @@ class TestHealth(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class NativeWorkerTests(unittest.TestCase):
+    def test_native_worker_called_and_failure_is_not_silent(self):
+        import os
+        from unittest.mock import patch
+        import subprocess
+        with patch.dict(os.environ, {'PULSEGRID_HEALTH_BIN': '/test/health-worker'}), \
+             patch('pulsegrid.health.subprocess.run') as run:
+            run.return_value.stdout = '80\n'
+            self.assertEqual(score_health(10, 0, True, True, True), 80)
+            self.assertEqual(run.call_args.args[0], ['/test/health-worker', '10', '0', 'true', 'true', 'true'])
+            run.side_effect = OSError('unavailable')
+            with self.assertRaises(RuntimeError):
+                score_health(10, 0, True, True, True)
