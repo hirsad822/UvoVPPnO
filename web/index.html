@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PulseGrid — Smart Traffic & Config Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">⚡ PulseGrid <span>Smart Traffic & Config Manager</span></div>
+  <div class="header-actions">
+    <button id="modeToggle" class="btn ghost">Expert Mode</button>
+    <button id="doctorBtn" class="btn primary">🩺 Run Doctor</button>
+    <button id="logoutBtn" class="btn ghost">Logout</button>
+  </div>
+</header>
+
+<div id="loginView" class="login-wrap">
+  <div class="login-card">
+    <h1>⚡ PulseGrid</h1>
+    <p>Enter your admin token to continue.</p>
+    <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off">
+    <button id="loginBtn" class="btn primary wide">Unlock Dashboard</button>
+    <p class="hint">Token was shown at install time. Stored only in this browser.</p>
+  </div>
+</div>
+
+<main id="appView" hidden>
+  <section class="cards" id="summaryCards"></section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>⚡ Smart Presets <span class="muted" id="modeLabel">Simple Mode</span></h2></div>
+    <div id="presetGrid" class="preset-grid"></div>
+    <div id="expertPanel" class="expert" hidden>
+      <h3>Expert tweaks</h3>
+      <div class="row">
+        <label>Transport <select id="expTransport"><option>tcp</option><option>ws</option><option>grpc</option></select></label>
+        <label>Security <select id="expSecurity"><option>tls</option><option>reality</option><option>none</option></select></label>
+        <label>Mux concurrency <input id="expMux" type="number" value="8" min="1" max="64"></label>
+      </div>
+      <button id="applyExpertBtn" class="btn">Apply expert overrides</button>
+    </div>
+  </section>
+
+  <section class="panel" id="doctorPanel" hidden>
+    <div class="panel-head"><h2>🩺 Connection Doctor</h2><span id="doctorVerdict" class="badge"></span></div>
+    <div class="row">
+      <input id="docHost" placeholder="Host (e.g. 1.1.1.1 or example.com)">
+      <input id="docPort" type="number" value="443" style="max-width:110px">
+      <button id="runDoctorBtn" class="btn primary">Run Diagnostics</button>
+      <button id="applyRecBtn" class="btn" hidden>Apply recommended preset</button>
+    </div>
+    <p id="doctorSummary" class="summary"></p>
+    <ul id="doctorFindings" class="findings"></ul>
+    <div class="meter"><div id="doctorMeter" class="meter-fill"></div></div>
+    <p class="muted">Score: <b id="doctorScore">—</b>/100</p>
+  </section>
+
+  <div class="two-col">
+    <section class="panel">
+      <div class="panel-head"><h2>🌐 Nodes</h2><button id="checkAllBtn" class="btn small">Check all health</button></div>
+      <div class="row">
+        <input id="nodeName" placeholder="Name"><input id="nodeHost" placeholder="Host">
+        <input id="nodePort" type="number" value="443" style="max-width:90px">
+        <button id="addNodeBtn" class="btn primary small">+ Add</button>
+      </div>
+      <div id="nodeList"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>👥 Users</h2></div>
+      <div class="row">
+        <input id="userName" placeholder="Username">
+        <input id="userQuota" type="number" value="50" style="max-width:90px" title="Quota GB">
+        <input id="userDays" type="number" value="30" style="max-width:90px" title="Days">
+        <button id="addUserBtn" class="btn primary small">+ Add</button>
+      </div>
+      <div id="userList"></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head"><h2>📊 Traffic & Alerts</h2></div>
+    <div id="trafficBox"></div>
+    <div id="alertList"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>

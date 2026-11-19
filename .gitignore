@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+*.db-wal
+*.db-shm
+.env
+.venv/
+node_modules/
+dist/
+build/
+*.log
