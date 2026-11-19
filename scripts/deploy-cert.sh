@@ -6,14 +6,14 @@ set -euo pipefail
 host=$1; cert=$2; key=$3; restart=${4:-}
 config=/etc/pulsegrid
 app=/opt/pulsegrid
-(cd "$app" && python3 -m pulsegrid.tls "$host" "$cert" "$key")
+"$app/bin/tlscheck" "$host" "$cert" "$key" >/dev/null
 tmp=$(mktemp -d "$config/tls.XXXXXXXX")
 cleanup() { [ -z "${tmp:-}" ] || rm -rf -- "$tmp"; }
 trap cleanup EXIT
 install -m 600 -o pulsegrid -g pulsegrid "$cert" "$tmp/fullchain.pem"
 install -m 600 -o pulsegrid -g pulsegrid "$key" "$tmp/privkey.pem"
 chown pulsegrid:pulsegrid "$tmp"; chmod 700 "$tmp"
-(cd "$app" && python3 -m pulsegrid.tls "$host" "$tmp/fullchain.pem" "$tmp/privkey.pem")
+"$app/bin/tlscheck" "$host" "$tmp/fullchain.pem" "$tmp/privkey.pem" >/dev/null
 link="$config/tls-next-$$"
 ln -s "$(basename "$tmp")" "$link"
 mv -Tf "$link" "$config/tls-current"

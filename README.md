@@ -4,10 +4,13 @@ A lightweight dashboard for managing VLESS nodes and users. It includes a
 connection doctor, health-filtered subscription links, advisory presets, and a
 managed Xray core. The Python dashboard has no third-party Python dependencies;
 the installer downloads a pinned Xray release and verifies its SHA-256 hash.
+Xray is written in Go. The dashboard and supervisor currently use Python; the
+installer builds a Go TLS validator. A Rust health-scoring library is under
+development and is not yet used by the running service; see [migration status](next/README.md).
 
 ## Requirements
 
-- Linux with systemd, Python 3.10+, root access, curl and unzip; x86_64 or arm64.
+- Linux with systemd, Python 3.10+, Go 1.19+, root access, curl and unzip; x86_64 or arm64.
 - A public IPv4 address, or a domain whose DNS points to the server. Ports **80/TCP** (certificate
   issuance/renewal), **8080/TCP** (dashboard), and **10000/TCP** (core) must be
   reachable; restrict dashboard access to trusted IPs where possible.
