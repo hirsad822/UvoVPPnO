@@ -57,7 +57,8 @@ async function renderPresets(active) {
 function renderNodes(nodes) {
   $("#nodeList").innerHTML = nodes.length ? nodes.map((n) => `
     <div class="item"><div><b>${esc(n.name)}</b> <span class="badge ${esc(n.verdict)}">${esc(n.verdict)} ${n.health_score}</span>
-      <div class="meta">${esc(n.host)}:${esc(n.port)} · ${esc(n.protocol)}/${esc(n.transport)} · ${n.latency_ms}ms · loss ${n.loss_pct}%</div></div>
+      <div class="meta">${esc(n.host)}:${esc(n.port)} · ${esc(n.protocol)}/${esc(n.transport)} · ${esc(n.latency_ms)}ms · loss ${esc(n.loss_pct)}%</div>
+      <div class="meta">${esc(n.health_detail || "Not checked yet — use Check all health.")}</div></div>
       <div class="actions"><button class="btn small" data-del-node="${esc(n.id)}">Delete</button></div></div>`).join("")
     : '<p class="muted">No nodes yet. Add one above.</p>';
   document.querySelectorAll("[data-del-node]").forEach((b) => b.addEventListener("click", async () => { await api(`/api/nodes/${b.dataset.delNode}`, { method: "DELETE" }); refresh(); }));
@@ -67,11 +68,57 @@ function renderUsers(users) {
   $("#userList").innerHTML = users.length ? users.map((u) => `
     <div class="item"><div><b>${esc(u.name)}</b> <span class="badge ${u.status === "active" ? "healthy" : "unhealthy"}">${esc(u.status)}</span>
       <div class="meta">used ${esc(u.used_human)} / ${esc(u.quota_human)} · ${u.days_left == null ? "no expiry" : u.days_left + "d left"}</div>
-      <div class="meta" style="word-break:break-all">sub: /api/subscription/${esc(u.uuid)}?format=base64</div></div>
+      </div>
       <div class="actions">
+        <button class="btn small primary" data-show-config="${esc(u.id)}">نمایش کانفیگ</button>
         <button class="btn small" data-copy-sub="${esc(u.uuid)}">Copy sub</button>
-        <button class="btn small" data-del-user="${esc(u.id)}">Delete</button></div></div>`).join("")
+        <button class="btn small" data-del-user="${esc(u.id)}">Delete</button></div>
+      <div class="config-results" data-config-for="${esc(u.id)}" hidden></div></div>`).join("")
     : '<p class="muted">No users yet. Add one above — copy the subscription link and you are done.</p>';
+  document.querySelectorAll("[data-show-config]").forEach((button) => button.addEventListener("click", async () => {
+    const box = button.closest(".item").querySelector(".config-results");
+    if (!box.hidden) { box.hidden = true; return; }
+    box.hidden = false;
+    box.textContent = "در حال دریافت کانفیگ…";
+    try {
+      const result = await api(`/api/users/${encodeURIComponent(button.dataset.showConfig)}/configs`);
+      box.replaceChildren();
+      if (!result.links.length) {
+        const messages = {
+          no_nodes: "نود فعالی وجود ندارد. وضعیت نصب هسته و بخش Nodes را بررسی کنید.",
+          unchecked: "نود هنوز بررسی نشده است. در بخش Nodes دکمه Check all health را بزنید و دوباره تلاش کنید.",
+          no_healthy_nodes: "نود سالمی پیدا نشد. Check all health را بزنید و نتیجه، پورت و TLS را بررسی کنید.",
+          expired: "اعتبار این کاربر تمام شده است.",
+          disabled: "این کاربر غیرفعال است.",
+          quota_exceeded: "سهمیه ثبت‌شده کاربر تمام شده است."
+        };
+        box.textContent = messages[result.reason] || "کانفیگی برای این کاربر در دسترس نیست.";
+        return;
+      }
+      const help = document.createElement("p");
+      help.textContent = "لینک VLESS شخصی است؛ آن را محرمانه نگه دارید. همگام‌سازی کاربر با هسته ممکن است چند ثانیه طول بکشد.";
+      box.append(help);
+      for (const link of result.links) {
+        const field = document.createElement("textarea");
+        field.readOnly = true;
+        field.rows = 3;
+        field.setAttribute("aria-label", "VLESS configuration");
+        field.value = link;
+        const copy = document.createElement("button");
+        copy.className = "btn small";
+        copy.textContent = "کپی کانفیگ";
+        copy.addEventListener("click", async () => {
+          try {
+            if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+            await navigator.clipboard.writeText(link); toast("کانفیگ کپی شد");
+          } catch { field.focus(); field.select(); toast("لینک را انتخاب و کپی کنید"); }
+        });
+        box.append(field, copy);
+      }
+    } catch (error) {
+      box.textContent = `خطا در دریافت کانفیگ: ${error.message}`;
+    }
+  }));
   document.querySelectorAll("[data-copy-sub]").forEach((b) => b.addEventListener("click", async () => {
     const url = `${location.origin}/api/subscription/${b.dataset.copySub}?format=base64`;
     try {

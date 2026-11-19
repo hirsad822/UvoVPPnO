@@ -120,7 +120,8 @@ class API:
                 if n["security"] == "tls" and not result["tls_ok"]:
                     result["score"] = 0
                     result["verdict"] = "unhealthy"
-                    result["summary"] = "TLS verification failed; node excluded from subscriptions."
+                    result["summary"] = ("Node is unreachable; check the core service and firewall." if not result["reachable"]
+                                         else "TLS verification failed; node excluded from subscriptions.")
                 score = result["score"]
                 self.db.record_health(n["id"], score, result["latency_ms"],
                                       result["loss_pct"], result["reachable"],
@@ -137,7 +138,8 @@ class API:
             if n["security"] == "tls" and not r["tls_ok"]:
                 r["score"] = 0
                 r["verdict"] = "unhealthy"
-                r["summary"] = "TLS verification failed; node excluded from subscriptions."
+                r["summary"] = ("Node is unreachable; check the core service and firewall." if not r["reachable"]
+                                else "TLS verification failed; node excluded from subscriptions.")
             score = r["score"]
             self.db.record_health(n["id"], score, r["latency_ms"], r["loss_pct"],
                                   r["reachable"], r["summary"])
@@ -153,6 +155,27 @@ class API:
         health = self.db.all_latest_health()
         return build_subscription(user, nodes, health, fmt=fmt,
                                   min_score=min_score if min_score is not None else self.settings.min_score)
+
+    def user_configs(self, user_id: str) -> dict:
+        """Admin-only explanation and usable links, respecting subscription filters."""
+        user = self.db.get_user(user_id)
+        if not user:
+            raise KeyError("user not found")
+        sub = self.subscription(user_id, fmt="plain")
+        nodes = self.db.list_nodes(enabled_only=True)
+        checks = self.db.all_latest_health()
+        if sub["meta"]["status"] != "active":
+            reason = sub["meta"]["status"]
+        elif not nodes:
+            reason = "no_nodes"
+        elif not any(n["id"] in checks for n in nodes):
+            reason = "unchecked"
+        elif not sub["links"]:
+            reason = "no_healthy_nodes"
+        else:
+            reason = "ready"
+        return {"links": sub["links"], "reason": reason,
+                "healthy_nodes": len(sub["links"]), "total_nodes": len(nodes)}
 
     # -- traffic ---------------------------------------------------------
     def traffic_summary(self) -> dict:

@@ -57,6 +57,7 @@ def rank_nodes(nodes: list[dict], health_map: dict[str, dict]) -> list[dict]:
         h = health_map.get(n["id"], {})
         score = int(h.get("score", 0))
         ranked.append({**n, "health_score": score, "verdict": verdict_for(score),
-                       "latency_ms": h.get("latency_ms", 0), "loss_pct": h.get("loss_pct", 0)})
+                       "latency_ms": h.get("latency_ms", 0), "loss_pct": h.get("loss_pct", 0),
+                       "health_detail": h.get("detail", ""), "checked_at": h.get("checked_at", 0)})
     ranked.sort(key=lambda x: x["health_score"], reverse=True)
     return ranked

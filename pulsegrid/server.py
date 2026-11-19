@@ -105,6 +105,12 @@ def make_handler(app: App):
             if path.startswith("/api/"):
                 if not app.check_auth(self.headers):
                     return self._json({"error": "unauthorized"}, 401)
+                parts = path.strip("/").split("/")
+                if len(parts) == 4 and parts[:2] == ["api", "users"] and parts[3] == "configs":
+                    try:
+                        return self._json(app.api.user_configs(parts[2]), extra_headers={"Cache-Control": "no-store"})
+                    except KeyError:
+                        return self._json({"error": "user not found"}, 404)
                 if path == "/api/dashboard":
                     return self._json(app.api.dashboard())
                 if path == "/api/nodes":

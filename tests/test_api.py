@@ -54,6 +54,23 @@ class TestAPI(unittest.TestCase):
         sub = self.api.subscription(u["id"], fmt="plain", min_score=0)
         self.assertEqual(len(sub["links"]), 1)
 
+    def test_user_configs_explain_empty_and_return_healthy_links(self):
+        user = self.api.create_user({"name": "test"})
+        self.assertEqual(self.api.user_configs(user["id"])["reason"], "no_nodes")
+        node = self.api.create_node({"name": "n", "host": "example.com"})
+        self.assertEqual(self.api.user_configs(user["id"])["reason"], "unchecked")
+        self.db.record_health(node["id"], 0, 0, 100, False, "failed")
+        self.assertEqual(self.api.user_configs(user["id"])["reason"], "no_healthy_nodes")
+        self.db.record_health(node["id"], 95, 10, 0, True, "ok")
+        result = self.api.user_configs(user["id"])
+        self.assertEqual(result["reason"], "ready")
+        self.assertIn(user["uuid"], result["links"][0])
+        self.db.update_user(user["id"], enabled=0)
+        self.assertEqual(self.api.user_configs(user["id"])["reason"], "disabled")
+        self.assertEqual(self.api.user_configs(user["id"])["links"], [])
+        with self.assertRaises(KeyError):
+            self.api.user_configs("unknown")
+
     def test_traffic_summary(self):
         self.db.add_usage("u1", up=100, down=200)
         t = self.api.traffic_summary()
