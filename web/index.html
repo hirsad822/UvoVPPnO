@@ -8,7 +8,7 @@
 </head>
 <body>
 <header>
-  <div class="brand">⚡ PulseGrid <span>Smart Traffic & Config Manager</span></div>
+  <div class="brand"><span class="brand-mark">✳</span> PulseGrid <span class="brand-sub">NETWORK CONTROL</span></div>
   <div class="header-actions">
     <button id="modeToggle" class="btn ghost">Expert Mode</button>
     <button id="doctorBtn" class="btn primary">🩺 Run Doctor</button>
@@ -27,11 +27,14 @@
 </div>
 
 <main id="appView" hidden>
+  <section class="hero"><div><div class="eyebrow"><span class="live-dot"></span> YOUR NETWORK, IN FOCUS</div><h1>Clarity for every<br><em>connection.</em></h1><p>Manage your network, keep an eye on health, and bring users online from one place.</p><a href="#workspace" class="hero-link">Explore your workspace <span>↗</span></a></div><div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core">✳</div><div class="orbit-label">NETWORK<br><strong>IN SYNC</strong></div></div></section>
+  <div class="section-title" id="workspace"><div><div class="eyebrow">THE OVERVIEW</div><h2>Your workspace</h2></div><span class="muted">A quick look at your network</span></div>
   <section class="cards" id="summaryCards"></section>
+  <div class="notice"><strong>Core connection · VLESS / TLS</strong><span>The managed core requires a valid certificate for your domain. Traffic metering and quota enforcement are not integrated. Run “Check all health” before copying a subscription. The installed dashboard also uses HTTPS.</span></div>
 
   <section class="panel">
     <div class="panel-head"><h2>⚡ Smart Presets <span class="muted" id="modeLabel">Simple Mode</span></h2></div>
-    <div id="presetGrid" class="preset-grid"></div>
+    <p class="muted">Preset recommendations are advisory; they do not reconfigure the managed Xray core.</p><div id="presetGrid" class="preset-grid"></div>
     <div id="expertPanel" class="expert" hidden>
       <h3>Expert tweaks</h3>
       <div class="row">
@@ -69,7 +72,7 @@
     </section>
 
     <section class="panel">
-      <div class="panel-head"><h2>👥 Users</h2></div>
+      <div class="panel-head"><h2>👥 Users</h2></div><p class="muted">Users sync to the core within a few seconds. Quotas are not enforced by Xray.</p>
       <div class="row">
         <input id="userName" placeholder="Username">
         <input id="userQuota" type="number" value="50" style="max-width:90px" title="Quota GB">

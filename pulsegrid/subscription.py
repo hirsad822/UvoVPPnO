@@ -18,12 +18,17 @@ def _node_link(node: dict, user_uuid: str) -> str:
     """Build a vless:// style link (generic, client-friendly)."""
     name = urllib.parse.quote(node.get("remark") or node.get("name") or node["id"])
     host = node.get("host", "")
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
     port = int(node.get("port", 443))
     proto = node.get("protocol", "vless")
     transport = node.get("transport", "tcp")
     security = node.get("security", "tls")
     uuid = user_uuid or node.get("uuid", "")
-    return f"{proto}://{uuid}@{host}:{port}?type={transport}&security={security}#{name}"
+    params = {"type": transport, "security": security}
+    if security == "tls":
+        params["sni"] = node.get("host", "")
+    return f"{proto}://{uuid}@{host}:{port}?{urllib.parse.urlencode(params)}#{name}"
 
 
 def build_subscription(user: dict, nodes: list[dict], health_map: dict[str, dict],
@@ -54,10 +59,10 @@ def build_subscription(user: dict, nodes: list[dict], health_map: dict[str, dict
         "generated_at": now,
     }
 
-    if expired or exceeded:
+    if expired or exceeded or status["status"] == "disabled":
         payload = ""
         links = []
-        meta["note"] = "Subscription empty: account expired or quota exceeded."
+        meta["note"] = "Subscription empty: account disabled, expired or quota exceeded."
     elif fmt == "json":
         payload = json.dumps({"meta": meta, "nodes": [
             {"name": n.get("name"), "host": n.get("host"), "port": n.get("port"),

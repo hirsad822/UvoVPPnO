@@ -62,3 +62,19 @@ class TestAPI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TLSHealthTests(unittest.TestCase):
+    def test_unverified_tls_is_excluded(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as tmp:
+            db = DB(Path(tmp) / 'test.db')
+            api = API(db, Settings(token='test'))
+            user = api.create_user({'name': 'alice'})
+            node = api.create_node({'name': 'n', 'host': 'example.com', 'port': 443, 'security': 'tls'})
+            result = {'score': 85, 'latency_ms': 5, 'loss_pct': 0, 'reachable': True,
+                      'summary': 'TLS failed', 'tls_ok': False}
+            with patch('pulsegrid.api.run_diagnostics', return_value=result):
+                api.check_all_nodes()
+            self.assertEqual(db.latest_health(node['id'])['score'], 0)
+            self.assertEqual(api.subscription(user['id'], fmt='plain')['links'], [])
+            db.close()

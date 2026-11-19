@@ -3,7 +3,8 @@
 # PulseGrid — Smart Traffic & Configuration Manager — One-Line Installer
 # =============================================================================
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/hirsad822/UvoVPPnO/main/install.sh | sudo bash
+#   Download install.sh, then pass PULSEGRID_PUBLIC_HOST, PULSEGRID_TLS_CERT and
+#   PULSEGRID_TLS_KEY to sudo env; see README.md for certificate setup.
 #   sudo bash install.sh [--update|--status|--uninstall|--purge|--help]
 #
 # Subcommands:
@@ -23,7 +24,7 @@ CONFIG_DIR="/etc/pulsegrid"
 SERVICE_FILE="/etc/systemd/system/pulsegrid.service"
 PORT="${PULSEGRID_PORT:-8080}"
 REPO_URL="${PULSEGRID_REPO_URL:-https://github.com/hirsad822/UvoVPPnO.git}"
-RAW_BASE="${PULSEGRID_RAW_BASE:-https://raw.githubusercontent.com/hirsad822/UvoVPPnO/main}"
+REF="${PULSEGRID_REF:-main}"
 
 # --- colours (only if tty) ---------------------------------------------------
 if [ -t 1 ]; then
@@ -50,7 +51,7 @@ Options:
   --help        Show this help
 
 Env overrides:
-  PULSEGRID_PORT, PULSEGRID_REPO_URL, PULSEGRID_RAW_BASE
+  PULSEGRID_PORT, PULSEGRID_REPO_URL, PULSEGRID_REF, PULSEGRID_PUBLIC_HOST, PULSEGRID_CORE_PORT, PULSEGRID_TLS_CERT, PULSEGRID_TLS_KEY
 EOF
 }
 
@@ -86,15 +87,15 @@ detect_os() {
 
 install_deps() {
   log "Ensuring python3 is available..."
-  if command -v python3 >/dev/null 2>&1; then
+  if command -v python3 >/dev/null 2>&1 && command -v curl >/dev/null 2>&1 && command -v unzip >/dev/null 2>&1 && command -v openssl >/dev/null 2>&1; then
     log "python3 found: $(python3 --version 2>&1)"
     return 0
   fi
   case "$PKG" in
-    apt) apt-get update -qq && apt-get install -y -qq python3 curl ca-certificates ;;
-    dnf) dnf install -y python3 curl ca-certificates ;;
-    apk) apk add --no-cache python3 curl ca-certificates ;;
-    pacman) pacman -Sy --noconfirm python3 curl ca-certificates ;;
+    apt) apt-get update -qq && apt-get install -y -qq python3 curl ca-certificates unzip openssl ;;
+    dnf) dnf install -y python3 curl ca-certificates unzip openssl ;;
+    apk) apk add --no-cache python3 curl ca-certificates unzip openssl ;;
+    pacman) pacman -Sy --noconfirm python3 curl ca-certificates unzip openssl ;;
     *) die "python3 not found and package manager '$PKG' unsupported. Install python3 manually." ;;
   esac
   command -v python3 >/dev/null 2>&1 || die "python3 installation failed"
@@ -107,16 +108,17 @@ fetch_code() {
   # Prefer git clone; fall back to tarball download
   if command -v git >/dev/null 2>&1; then
     if [ -d "$APP_DIR/.git" ]; then
-      git -C "$APP_DIR" pull --ff-only 2>/dev/null || warn "git pull failed — keeping existing code"
+      git -C "$APP_DIR" fetch origin "$REF" && git -C "$APP_DIR" merge --ff-only FETCH_HEAD || die "git update failed; existing code preserved"
     else
-      rm -rf "$APP_DIR.tmp" && git clone --depth 1 "$REPO_URL" "$APP_DIR.tmp" 2>/dev/null \
+      rm -rf "$APP_DIR.tmp" && git clone --depth 1 --branch "$REF" "$REPO_URL" "$APP_DIR.tmp" 2>/dev/null \
         && rm -rf "$APP_DIR" && mv "$APP_DIR.tmp" "$APP_DIR" \
         || warn "git clone failed — trying tarball fallback"
     fi
   fi
-  if [ ! -f "$APP_DIR/pulsegrid/__main__.py" ]; then
+  if [ ! -d "$APP_DIR/.git" ]; then
+    [ "$REPO_URL" = "https://github.com/hirsad822/UvoVPPnO.git" ] || die "A custom repository requires git"
     log "Downloading release tarball..."
-    curl -fsSL "https://codeload.github.com/hirsad822/UvoVPPnO/tar.gz/refs/heads/main" -o /tmp/pulsegrid.tar.gz \
+    curl -fsSL "https://codeload.github.com/hirsad822/UvoVPPnO/tar.gz/refs/heads/$REF" -o /tmp/pulsegrid.tar.gz \
       || die "Failed to download PulseGrid. Check network connectivity."
     rm -rf "$APP_DIR.tmp" && mkdir -p "$APP_DIR.tmp"
     tar -xzf /tmp/pulsegrid.tar.gz -C "$APP_DIR.tmp" --strip-components=1
@@ -138,12 +140,91 @@ setup_dirs_and_token() {
   else
     TOKEN_CREATED=0
   fi
-  # Service user (best effort)
+  # Service user
   if ! id pulsegrid >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin pulsegrid 2>/dev/null || true
+    useradd --system --no-create-home --shell /usr/sbin/nologin pulsegrid || die "Could not create service user"
   fi
-  chown -R pulsegrid:pulsegrid "$DATA_DIR" "$CONFIG_DIR" 2>/dev/null || true
+  chown -R pulsegrid:pulsegrid "$DATA_DIR" "$CONFIG_DIR"
   chown -R root:root "$APP_DIR" 2>/dev/null || true
+}
+
+
+install_core() {
+  # Pinned upstream release and SHA-256 digests from GitHub release metadata.
+  local asset digest tmp
+  case "$ARCH_NORM" in
+    x86_64) asset=Xray-linux-64.zip; digest=b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82 ;;
+    arm64) asset=Xray-linux-arm64-v8a.zip; digest=64ed6858982a7f5eb85d88b811089063bd4f17561f4c8f44e0f1dc8e6f6430be ;;
+    *) die "Xray core is not available for architecture $ARCH_NORM" ;;
+  esac
+  command -v systemctl >/dev/null && [ -d /run/systemd/system ] || die "A running systemd is required"
+  tmp=$(mktemp -d)
+  log "Downloading Xray v26.11.9 ($ARCH_NORM)..."
+  if ! curl -fLsS --retry 3 "https://github.com/XTLS/Xray-core/releases/download/v26.11.9/$asset" -o "$tmp/core.zip"; then
+    rm -rf "$tmp"; die "Xray download failed; the core was not installed"
+  fi
+  if ! echo "$digest  $tmp/core.zip" | sha256sum -c -; then
+    rm -rf "$tmp"; die "Xray checksum mismatch"
+  fi
+  unzip -q "$tmp/core.zip" xray geoip.dat geosite.dat -d "$tmp" || { rm -rf "$tmp"; die "Cannot extract Xray"; }
+  mkdir -p /opt/pulsegrid-core
+  install -m 755 "$tmp/xray" /opt/pulsegrid-core/xray
+  install -m 644 "$tmp/geoip.dat" "$tmp/geosite.dat" /opt/pulsegrid-core/
+  rm -rf "$tmp"
+  /opt/pulsegrid-core/xray version | head -n 1
+}
+
+configure_core() {
+  local core_env="$CONFIG_DIR/core.env" host core_port saved_host="" saved_port="" cert key certbot_managed="0"
+  if [ -f "$core_env" ]; then
+    saved_host=$(sed -n 's/^PULSEGRID_PUBLIC_HOST=//p' "$core_env")
+    saved_port=$(sed -n 's/^PULSEGRID_CORE_PORT=//p' "$core_env")
+    certbot_managed=$(sed -n 's/^PULSEGRID_CERTBOT_MANAGED=//p' "$core_env")
+  fi
+  host="${PULSEGRID_PUBLIC_HOST:-$saved_host}"
+  core_port="${PULSEGRID_CORE_PORT:-${saved_port:-10000}}"
+  [[ "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ && "$host" == *.* ]] || die "Set PULSEGRID_PUBLIC_HOST to your public domain"
+  [[ "$core_port" =~ ^[0-9]+$ ]] && (( core_port >= 1024 && core_port <= 65535 && core_port != PORT )) || die "Invalid core port (must be 1024-65535 and differ from dashboard port)"
+  if [[ -n "${PULSEGRID_TLS_CERT:-}" || -n "${PULSEGRID_TLS_KEY:-}" ]]; then
+    [[ -n "${PULSEGRID_TLS_CERT:-}" && -n "${PULSEGRID_TLS_KEY:-}" ]] || die "Provide both PULSEGRID_TLS_CERT and PULSEGRID_TLS_KEY"
+    cert=$PULSEGRID_TLS_CERT; key=$PULSEGRID_TLS_KEY
+    case "$cert" in /etc/letsencrypt/live/*/fullchain.pem) certbot_managed=1 ;; *) certbot_managed=0 ;; esac
+  elif [ -f "$CONFIG_DIR/tls-current/fullchain.pem" ]; then
+    cert="$CONFIG_DIR/tls-current/fullchain.pem"; key="$CONFIG_DIR/tls-current/privkey.pem"
+  else
+    cert="/etc/letsencrypt/live/$host/fullchain.pem"; key="/etc/letsencrypt/live/$host/privkey.pem"
+    if [ ! -f "$cert" ]; then
+      if ! command -v certbot >/dev/null 2>&1; then
+        log "Installing Certbot for automatic TLS certificate issuance..."
+        case "$PKG" in
+          apt) apt-get update -qq && apt-get install -y certbot ;;
+          dnf) dnf install -y certbot ;;
+          apk) apk add --no-cache certbot ;;
+          pacman) pacman -Sy --noconfirm certbot ;;
+          *) die "Install certbot or provide PULSEGRID_TLS_CERT and PULSEGRID_TLS_KEY" ;;
+        esac
+      fi
+      log "Requesting a certificate for $host. DNS must point here and port 80 must be reachable and free."
+      certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$host" || die "Certificate issuance failed; check DNS and TCP port 80. Existing service may still be running."
+    fi
+    certbot_managed=1
+  fi
+  (cd "$APP_DIR" && python3 -m pulsegrid.tls "$host" "$cert" "$key") || die "TLS setup failed. Provide a valid certificate and key for $host; any previous service may still be running."
+  if [ "$cert" != "$CONFIG_DIR/tls-current/fullchain.pem" ]; then
+    bash "$APP_DIR/scripts/deploy-cert.sh" "$host" "$cert" "$key" || die "Could not install TLS certificate"
+  fi
+  printf 'PULSEGRID_PUBLIC_HOST=%s\nPULSEGRID_CORE_PORT=%s\nPULSEGRID_DASHBOARD_TLS=1\nPULSEGRID_CERTBOT_MANAGED=%s\nXRAY_LOCATION_ASSET=/opt/pulsegrid-core\n' "$host" "$core_port" "${certbot_managed:-0}" > "$core_env"
+  chown pulsegrid:pulsegrid "$core_env"; chmod 600 "$core_env"
+  if [ "${certbot_managed:-0}" = 1 ]; then
+    mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+    install -m 755 "$APP_DIR/scripts/certbot-deploy.sh" /etc/letsencrypt/renewal-hooks/deploy/pulsegrid
+    log "Certbot renewal deploy hook installed. Ensure certbot's renewal timer is active and port 80 remains reachable."
+  else
+    rm -f /etc/letsencrypt/renewal-hooks/deploy/pulsegrid
+    warn "Custom TLS certificate: reinstall it with scripts/deploy-cert.sh after each renewal."
+  fi
+  log "Core TLS address: $host:$core_port"
+  warn "Open TCP port $core_port in your firewall. Traffic metering/quota enforcement is not integrated."
 }
 
 write_service() {
@@ -162,6 +243,7 @@ WorkingDirectory=$APP_DIR
 ExecStart=/usr/bin/python3 -m pulsegrid --host 0.0.0.0 --port $PORT
 Environment=PULSEGRID_CONFIG_DIR=$CONFIG_DIR
 Environment=PULSEGRID_DATA_DIR=$DATA_DIR
+EnvironmentFile=$CONFIG_DIR/core.env
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=true
@@ -173,45 +255,56 @@ ReadWritePaths=$DATA_DIR $CONFIG_DIR
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  systemctl enable --now "$APP_NAME" 2>/dev/null || systemctl enable "$APP_NAME"
+  systemctl enable "$APP_NAME"
+  systemctl restart "$APP_NAME"
 }
 
 firewall_hints() {
-  log "Firewall hints (open port $PORT if needed):"
-  if command -v ufw >/dev/null 2>&1; then
-    ufw allow "$PORT/tcp" comment 'PulseGrid dashboard' 2>/dev/null || true
-    log "  ufw: allowed $PORT/tcp"
-  elif command -v firewall-cmd >/dev/null 2>&1; then
-    firewall-cmd --permanent --add-port="$PORT/tcp" 2>/dev/null || true
-    firewall-cmd --reload 2>/dev/null || true
-    log "  firewalld: allowed $PORT/tcp"
-  else
-    warn "  No ufw/firewalld found — open port $PORT in your cloud firewall / security group."
-  fi
+  warn "Open dashboard TCP port $PORT only to trusted addresses."
+  warn "Open the configured core TCP port in your server and cloud firewall."
 }
 
 health_check() {
-  log "Running health check..."
+  local host core_port
+  host=$(sed -n 's/^PULSEGRID_PUBLIC_HOST=//p' "$CONFIG_DIR/core.env")
+  core_port=$(sed -n 's/^PULSEGRID_CORE_PORT=//p' "$CONFIG_DIR/core.env")
+  log "Running health checks..."
   for i in 1 2 3 4 5 6 7 8 9 10; do
-    if curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1; then
-      log "Health check passed ✓"
+    if curl --noproxy '*' --resolve "$host:$PORT:127.0.0.1" -fsS "https://$host:$PORT/api/health" >/dev/null 2>&1; then
+      log "Dashboard HTTPS health check passed"
+      break
+    fi
+    sleep 1
+  done
+  curl --noproxy '*' --resolve "$host:$PORT:127.0.0.1" -fsS "https://$host:$PORT/api/health" >/dev/null || die "Dashboard HTTPS health check failed — check journalctl -u $APP_NAME"
+  for i in 1 2 3 4 5 6 7 8 9 10; do
+    if python3 - "$host" "$core_port" <<'PYHEALTH'
+import socket, ssl, sys
+try:
+    with socket.create_connection(('127.0.0.1', int(sys.argv[2])), timeout=2) as sock:
+        with ssl.create_default_context().wrap_socket(sock, server_hostname=sys.argv[1]):
+            pass
+except (OSError, ssl.SSLError) as exc:
+    print('Core TLS check:', exc, file=sys.stderr)
+    sys.exit(1)
+PYHEALTH
+    then
+      log "Core verified TLS handshake passed"
       return 0
     fi
     sleep 1
   done
-  warn "Health check did not respond yet — check: journalctl -u $APP_NAME -f"
-  return 0
+  die "Core TLS health check failed — check journalctl -u $APP_NAME -n 100"
 }
 
 print_success() {
   TOKEN="$(cat "$CONFIG_DIR/token" 2>/dev/null || echo '<see /etc/pulsegrid/token>')"
-  IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  [ -z "$IP" ] && IP="<your-server-ip>"
+  IP="$(sed -n 's/^PULSEGRID_PUBLIC_HOST=//p' "$CONFIG_DIR/core.env")"
   cat <<EOF
 
 ${GREEN}✅ PulseGrid installed successfully!${NC}
 
-   Dashboard : http://$IP:$PORT
+   Dashboard : https://$IP:$PORT
    Token     : $TOKEN
    Service   : systemctl status $APP_NAME
    Logs      : journalctl -u $APP_NAME -f
@@ -229,12 +322,14 @@ EOF
 
 do_install() {
   require_root; detect_os; install_deps; fetch_code
-  setup_dirs_and_token; write_service; firewall_hints; health_check; print_success
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "Python 3.10 or later is required"
+  setup_dirs_and_token; configure_core; install_core; write_service; firewall_hints; health_check; print_success
 }
 
 do_update() {
   require_root; detect_os; install_deps; fetch_code
-  setup_dirs_and_token; write_service; systemctl restart "$APP_NAME" || true
+  python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || die "Python 3.10 or later is required"
+  setup_dirs_and_token; configure_core; install_core; write_service
   health_check
   log "Update complete. Data & token preserved."
   print_success
@@ -253,7 +348,11 @@ do_status() {
   if [ -f "$CONFIG_DIR/token" ]; then echo "Token: present ($CONFIG_DIR/token)"; else echo "Token: MISSING"; fi
   if [ -f "$DATA_DIR/pulsegrid.db" ]; then echo "Data: present ($DATA_DIR/pulsegrid.db)"; else echo "Data: not created yet"; fi
   echo "---"
-  curl -fsS "http://127.0.0.1:$PORT/api/health" 2>/dev/null && echo " <- health OK" || echo "Health endpoint: not responding on port $PORT"
+  local host
+  host=$(sed -n 's/^PULSEGRID_PUBLIC_HOST=//p' "$CONFIG_DIR/core.env" 2>/dev/null || true)
+  if [ -n "$host" ]; then
+    curl --noproxy '*' --resolve "$host:$PORT:127.0.0.1" -fsS "https://$host:$PORT/api/health" 2>/dev/null && echo " <- health OK" || echo "HTTPS health endpoint: not responding on port $PORT"
+  fi
   echo "Logs: journalctl -u $APP_NAME -n 50"
 }
 
@@ -263,9 +362,9 @@ do_uninstall() {
   for a in "$@"; do [ "$a" = "--purge" ] && PURGE=1; done
   log "Uninstalling PulseGrid..."
   systemctl disable --now "$APP_NAME" 2>/dev/null || true
-  rm -f "$SERVICE_FILE"
+  rm -f "$SERVICE_FILE" /etc/letsencrypt/renewal-hooks/deploy/pulsegrid
   systemctl daemon-reload 2>/dev/null || true
-  rm -rf "$APP_DIR"
+  rm -rf "$APP_DIR" /opt/pulsegrid-core
   if [ "$PURGE" = "1" ]; then
     rm -rf "$DATA_DIR" "$CONFIG_DIR"
     log "Purged data & config."

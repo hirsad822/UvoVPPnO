@@ -59,6 +59,17 @@ class TestSubscription(unittest.TestCase):
         self.assertEqual(sub["links"], [])
         self.assertEqual(sub["meta"]["status"], "quota_exceeded")
 
+    def test_disabled_user_gets_empty_subscription(self):
+        sub = build_subscription(_user(enabled=0), _nodes(), _health(), fmt="json")
+        self.assertEqual(sub["links"], [])
+        self.assertEqual(sub["payload"], "")
+
+    def test_ipv6_host_is_bracketed(self):
+        node = _nodes()[0]
+        node["host"] = "2001:db8::1"
+        sub = build_subscription(_user(), [node], _health(), fmt="plain")
+        self.assertIn("@[2001:db8::1]:443", sub["links"][0])
+
     def test_headers_present(self):
         sub = build_subscription(_user(), _nodes(), _health(), fmt="plain")
         self.assertIn("X-Healthy-Nodes", sub["headers"])

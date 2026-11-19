@@ -20,6 +20,7 @@ class Settings:
     web_dir: Path = field(default_factory=lambda: Path(__file__).resolve().parent.parent / "web")
     db_path: Path = field(default_factory=lambda: Path("/var/lib/pulsegrid/pulsegrid.db"))
     mode: str = "simple"  # simple | expert
+    dashboard_tls: bool = False
     min_score: int = 50
 
     @classmethod
@@ -30,6 +31,7 @@ class Settings:
         s.port = int(argv.get("port") or os.environ.get("PULSEGRID_PORT", s.port))
         s.token = argv.get("token") or os.environ.get("PULSEGRID_TOKEN", "")
         s.mode = argv.get("mode") or os.environ.get("PULSEGRID_MODE", s.mode)
+        s.dashboard_tls = os.environ.get("PULSEGRID_DASHBOARD_TLS", "0") == "1"
         if os.environ.get("PULSEGRID_DATA_DIR"):
             s.data_dir = Path(os.environ["PULSEGRID_DATA_DIR"])
             s.db_path = s.data_dir / "pulsegrid.db"

@@ -33,8 +33,6 @@ def _dns_probe(host: str) -> tuple[bool, str]:
 
 def _tls_probe(host: str, port: int, timeout: float = 3.0) -> tuple[bool, str]:
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     try:
         with socket.create_connection((host, port), timeout=timeout) as sock:
             with ctx.wrap_socket(sock, server_hostname=host) as ssock:

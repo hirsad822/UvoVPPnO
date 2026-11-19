@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hmac
+import ssl
 import mimetypes
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,7 +23,7 @@ class App:
 
     def check_auth(self, headers) -> bool:
         auth = headers.get("Authorization", "")
-        return auth == f"Bearer {self.settings.token}"
+        return hmac.compare_digest(auth.encode(), f"Bearer {self.settings.token}".encode())
 
 
 def make_handler(app: App):
@@ -53,7 +55,7 @@ def make_handler(app: App):
             web = app.settings.web_dir
             rel = path.lstrip("/") or "index.html"
             target = (web / rel).resolve()
-            if not str(target).startswith(str(web.resolve())) or not target.is_file():
+            if not target.is_relative_to(web.resolve()) or not target.is_file():
                 self._json({"error": "not found"}, 404)
                 return
             ctype = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
@@ -81,6 +83,9 @@ def make_handler(app: App):
                 fmt = (qs.get("format", ["base64"])[0]).lower()
                 if fmt not in ("base64", "plain", "json"):
                     fmt = "base64"
+                user = app.db.get_user(uid)
+                if not user or not hmac.compare_digest(uid, user["uuid"]):
+                    return self._json({"error": "user not found"}, 404)
                 try:
                     sub = app.api.subscription(uid, fmt=fmt)
                 except KeyError:
@@ -91,6 +96,7 @@ def make_handler(app: App):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                self.send_header("Cache-Control", "no-store")
                 for k, v in sub["headers"].items():
                     self.send_header(k, v)
                 self.end_headers()
@@ -170,14 +176,26 @@ def make_handler(app: App):
 
 def serve(settings: Settings) -> None:
     app = App(settings)
+    from .core import CoreSupervisor
+    core = CoreSupervisor(settings)
     handler = make_handler(app)
     httpd = ThreadingHTTPServer((settings.host, settings.port), handler)
-    print(f"PulseGrid listening on http://{settings.host}:{settings.port}")
-    print(f"Dashboard: http://{settings.host}:{settings.port}/  (token required)")
+    scheme = "http"
+    if settings.dashboard_tls:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.load_cert_chain(str(settings.config_dir / "tls-current/fullchain.pem"),
+                                str(settings.config_dir / "tls-current/privkey.pem"))
+        httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
+        scheme = "https"
+    core.start()
+    print(f"PulseGrid listening on {scheme}://{settings.host}:{settings.port}")
+    print(f"Dashboard: {scheme}://{settings.host}:{settings.port}/  (token required)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:
         httpd.server_close()
+        core.stop()
         app.db.close()

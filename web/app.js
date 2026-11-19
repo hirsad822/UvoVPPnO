@@ -67,14 +67,19 @@ function renderUsers(users) {
   $("#userList").innerHTML = users.length ? users.map((u) => `
     <div class="item"><div><b>${esc(u.name)}</b> <span class="badge ${u.status === "active" ? "healthy" : "unhealthy"}">${esc(u.status)}</span>
       <div class="meta">used ${esc(u.used_human)} / ${esc(u.quota_human)} · ${u.days_left == null ? "no expiry" : u.days_left + "d left"}</div>
-      <div class="meta" style="word-break:break-all">sub: /api/subscription/${esc(u.id)}?format=base64</div></div>
+      <div class="meta" style="word-break:break-all">sub: /api/subscription/${esc(u.uuid)}?format=base64</div></div>
       <div class="actions">
-        <button class="btn small" data-copy-sub="${esc(u.id)}">Copy sub</button>
+        <button class="btn small" data-copy-sub="${esc(u.uuid)}">Copy sub</button>
         <button class="btn small" data-del-user="${esc(u.id)}">Delete</button></div></div>`).join("")
     : '<p class="muted">No users yet. Add one above — copy the subscription link and you are done.</p>';
   document.querySelectorAll("[data-copy-sub]").forEach((b) => b.addEventListener("click", async () => {
     const url = `${location.origin}/api/subscription/${b.dataset.copySub}?format=base64`;
-    await navigator.clipboard.writeText(url); toast("Subscription link copied");
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
+      await navigator.clipboard.writeText(url); toast("Subscription link copied");
+    } catch {
+      window.prompt("Copy your private subscription URL:", url);
+    }
   }));
   document.querySelectorAll("[data-del-user]").forEach((b) => b.addEventListener("click", async () => { await api(`/api/users/${b.dataset.delUser}`, { method: "DELETE" }); refresh(); }));
 }

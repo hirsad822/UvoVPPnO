@@ -117,7 +117,12 @@ class API:
         # Persist health for matching node if exists
         for n in self.db.list_nodes():
             if n["host"] == host and int(n["port"]) == port:
-                self.db.record_health(n["id"], result["score"], result["latency_ms"],
+                if n["security"] == "tls" and not result["tls_ok"]:
+                    result["score"] = 0
+                    result["verdict"] = "unhealthy"
+                    result["summary"] = "TLS verification failed; node excluded from subscriptions."
+                score = result["score"]
+                self.db.record_health(n["id"], score, result["latency_ms"],
                                       result["loss_pct"], result["reachable"],
                                       result["summary"])
                 break
@@ -129,7 +134,12 @@ class API:
         for n in nodes:
             r = run_diagnostics(n["host"], int(n["port"]), probes=3,
                                 service_port=self.settings.port)
-            self.db.record_health(n["id"], r["score"], r["latency_ms"], r["loss_pct"],
+            if n["security"] == "tls" and not r["tls_ok"]:
+                r["score"] = 0
+                r["verdict"] = "unhealthy"
+                r["summary"] = "TLS verification failed; node excluded from subscriptions."
+            score = r["score"]
+            self.db.record_health(n["id"], score, r["latency_ms"], r["loss_pct"],
                                   r["reachable"], r["summary"])
             results.append({"node_id": n["id"], "name": n["name"], **r})
         return {"checked": len(results), "results": results}

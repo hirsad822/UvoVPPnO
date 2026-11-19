@@ -2,6 +2,7 @@
 # PulseGrid post-install verification.
 # Usage: bash scripts/verify.sh [BASE_URL] [TOKEN]
 set -euo pipefail
+cd "$(dirname "$0")/.."
 BASE="${1:-http://127.0.0.1:8080}"
 TOKEN="${2:-${PULSEGRID_TOKEN:-}}"
 PASS=0; FAIL=0

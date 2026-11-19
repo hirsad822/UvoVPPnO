@@ -1,167 +1,106 @@
-# PulseGrid — Smart Traffic & Configuration Manager
+# PulseGrid
 
-> **Set up a working proxy node or user in under a minute. No 50-page manual. No raw-form fatigue.**
+A lightweight dashboard for managing VLESS nodes and users. It includes a
+connection doctor, health-filtered subscription links, advisory presets, and a
+managed Xray core. The Python dashboard has no third-party Python dependencies;
+the installer downloads a pinned Xray release and verifies its SHA-256 hash.
 
-PulseGrid is a distinctive, high-appeal traffic & configuration management system built around
-**smart automation, self-diagnostics, and effortless one-command installation** — instead of
-exposing overwhelming raw forms and repetitive panel screens.
+## Requirements
 
-![Status](https://img.shields.io/badge/status-production%20ready-brightgreen)
-![Python](https://img.shields.io/badge/python-3.8%2B-blue)
-![Deps](https://img.shields.io/badge/dependencies-zero%20(stdlib%20only)-orange)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
+- Linux with systemd, Python 3.10+, root access, curl and unzip; x86_64 or arm64.
+- A domain whose public DNS points to the server. Ports **80/TCP** (certificate
+  issuance/renewal), **8080/TCP** (dashboard), and **10000/TCP** (core) must be
+  reachable; restrict dashboard access to trusted IPs where possible.
+- Port 80 must be free while Certbot uses the standalone challenge. The domain
+  must be publicly reachable for Let's Encrypt to issue a certificate.
+- The server needs access to GitHub releases and Let's Encrypt.
 
----
+## Installation and updates
 
-## ✨ What Makes PulseGrid Different
-
-| Generic Panels | PulseGrid |
-|---|---|
-| Raw forms, 50 fields, guesswork | **Smart Presets** — one click applies a curated profile |
-| "It doesn't work" with no clues | **Connection Doctor** — tests latency, loss, ports, TLS & service health, then suggests/applies a fix |
-| Static subscription dumps dead nodes | **Health-Aware Subscription** — only healthy, low-latency, non-expired nodes, ranked by live score |
-| Dashboard = tables | **Instant Actions** — create a user/node in <60s, copy subscription, see quota & expiry in plain language |
-| Expert-only UX | **Simple Mode by default**, Expert Mode when you want full control |
-
-### Standout Features
-
-1. **🩺 Smart Route & Connection Doctor** — built-in diagnostics that test latency, packet loss,
-   port reachability, DNS, TLS handshake, and core/service health. Returns a 0–100 health score
-   with human-readable findings and **one-click "Apply recommended preset"** remediation.
-
-2. **⚡ One-Click Smart Presets + Simple Mode** — curated profiles:
-   *Balanced Daily*, *Low Latency*, *Resilient Mode*, *Streaming Optimized*, *Max Privacy*.
-   Simple Mode hides everything else. Expert Mode reveals transport, security, mux, routing & sockopt tweaks.
-
-3. **🔗 Health-Aware Dynamic Subscription** — subscription links that prioritize healthy,
-   low-latency, non-expired nodes and show clear quota & expiry info. Formats: Base64, Plain, JSON
-   (Clash / Sing-box / V2RayNG friendly).
-
-4. **📊 Clean Modern Dashboard & Instant Actions** — fast overview of nodes, users, traffic usage,
-   and alerts. Designed for speed: add user → copy link → done.
-
----
-
-## 🚀 One-Line Installation
+After these changes are merged to `main`, download the installer and provide your
+actual domain (do not include `https://`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/hirsad822/UvoVPPnO/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/hirsad822/UvoVPPnO/main/install.sh -o install.sh
+sudo env PULSEGRID_PUBLIC_HOST=example.com bash install.sh
 ```
 
-Or clone and run locally:
+For an existing installation use the same command with `--update` after
+`install.sh`. To test a branch before merging, download that branch's installer
+and set `PULSEGRID_REF` to the same branch name. The installer installs Certbot
+if necessary, requests a certificate using its standalone HTTP challenge,
+installs Xray and enables the service. An already issued certificate in
+`/etc/letsencrypt/live/<domain>/` is reused. Alternatively supply your own
+certificate and private key using `PULSEGRID_TLS_CERT` and `PULSEGRID_TLS_KEY`.
+
+The installer prints the dashboard URL, token and service commands. Open
+`https://example.com:8080`, enter the token, add a user, wait a few seconds,
+then click **Check all health** and copy the subscription. Both the dashboard
+and managed Xray core use TLS. Subscription URLs contain credentials; keep them
+private and share them only with the intended user. Old subscription URLs using
+short user IDs are no longer accepted; copy new links after upgrading.
 
 ```bash
-git clone https://github.com/hirsad822/UvoVPPnO.git && cd UvoVPPnO
-sudo bash install.sh
+sudo cat /etc/pulsegrid/token
+sudo systemctl status pulsegrid
+sudo journalctl -u pulsegrid -n 100 --no-pager
+sudo bash /opt/pulsegrid/install.sh --status
+sudo bash /opt/pulsegrid/install.sh --uninstall          # preserve data
+sudo bash /opt/pulsegrid/install.sh --uninstall --purge  # delete data and config
 ```
 
-The installer detects OS/arch (Debian/Ubuntu `x86_64` / `arm64`, RHEL, Alpine), checks root,
-installs only `python3` (zero pip dependencies — stdlib only), creates a systemd service,
-prints firewall hints, runs a health check, and shows access details + status commands.
-Re-running is safe (idempotent).
+`PULSEGRID_PORT` changes the dashboard port; `PULSEGRID_CORE_PORT` changes the
+core port. Both default to unprivileged ports 8080 and 10000 respectively. Set
+these environment variables when installing/updating, and open the corresponding
+ports in your firewall. If an update fails, the old service may still be running.
+The installer reports failure if it cannot verify both the dashboard HTTPS and
+core TLS handshakes.
 
-### After Install
+### Certificate renewal
 
-```
-✅ PulseGrid installed successfully!
-
-   Dashboard : http://<your-server-ip>:8080
-   Token     : <shown once — save it>
-   Service   : systemctl status pulsegrid
-   Logs      : journalctl -u pulsegrid -f
-```
-
-Open the dashboard, paste the token, pick a preset, add a user — done.
-
----
-
-## 🧭 Quick Start (60 seconds)
-
-1. Open `http://<server>:8080` → enter token.
-2. Click **Connection Doctor → Run Diagnostics** (optional but recommended).
-3. Pick a preset (e.g. **Balanced Daily**) → **Apply**.
-4. **Users → Add User** → copy the subscription link.
-5. Import the link into your client (V2RayNG / Streisand / Clash / Sing-box).
-
----
-
-## 📁 Repository Layout
-
-```
-.
-├── install.sh                  # One-line installer (install / --update / --status / --uninstall)
-├── README.md                   # This file
-├── docs/
-│   ├── PRODUCT.md              # Product concept & differentiation
-│   ├── ARCHITECTURE.md         # System design, data model, API
-│   └── TROUBLESHOOTING.md      # Usage & troubleshooting commands
-├── pulsegrid/                  # Core backend (Python stdlib only — zero pip deps)
-│   ├── __init__.py
-│   ├── __main__.py             # Entry point: python3 -m pulsegrid
-│   ├── server.py               # Threading HTTP server + routing + static files
-│   ├── config.py               # Settings, token, paths
-│   ├── db.py                   # SQLite storage layer
-│   ├── presets.py              # Smart preset engine
-│   ├── doctor.py               # Connection Doctor diagnostics
-│   ├── health.py               # Health scoring & ranking
-│   ├── subscription.py         # Health-aware subscription builder
-│   ├── traffic.py              # Traffic accounting & quota
-│   └── api.py                  # REST API handlers
-├── web/                        # Dashboard frontend (no build step)
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
-├── systemd/
-│   └── pulsegrid.service       # systemd unit
-├── scripts/
-│   └── verify.sh               # Post-install verification
-└── tests/                      # Unit + API tests (stdlib unittest)
-    ├── test_presets.py
-    ├── test_doctor.py
-    ├── test_health.py
-    ├── test_subscription.py
-    └── test_api.py
-```
-
----
-
-## 🔧 Management Commands
+For Certbot-managed certificates, a deploy hook copies each renewed certificate
+and key into PulseGrid's restricted configuration directory and restarts the
+service. Ensure the Certbot renewal timer is enabled (`systemctl list-timers`
+and `certbot renew --dry-run`) and port 80 remains available for the challenge.
+Renewal can fail if another web server occupies port 80. Certbot dry-runs do not
+necessarily execute deploy hooks; test the hook according to your Certbot version.
+For custom certificates, after renewal run:
 
 ```bash
-# Service
-systemctl status pulsegrid
-systemctl restart pulsegrid
-journalctl -u pulsegrid -f
+sudo /opt/pulsegrid/scripts/deploy-cert.sh example.com /path/fullchain.pem /path/privkey.pem --restart
+```
 
-# Installer subcommands
-sudo bash install.sh --status     # show install + health status
-sudo bash install.sh --update     # update to latest code (keeps data & token)
-sudo bash install.sh --uninstall  # remove service & files (keeps data unless --purge)
-sudo bash install.sh --help
+PulseGrid checks that the certificate matches the domain, is valid by date and
+matches the private key. Clients and the Doctor additionally verify trust in the
+issuing CA. A self-signed certificate will not pass normal client verification.
 
-# Local dev (no install needed)
-python3 -m pulsegrid --host 0.0.0.0 --port 8080 --token dev-token
+## Development and verification
+
+```bash
 python3 -m unittest discover -s tests -v
-bash scripts/verify.sh
+PULSEGRID_DATA_DIR=/tmp/pulsegrid-data PULSEGRID_CONFIG_DIR=/tmp/pulsegrid-config \
+  python3 -m pulsegrid --host 127.0.0.1 --port 8080 --token dev-token
+bash scripts/verify.sh http://127.0.0.1:8080 dev-token
+# After production install:
+bash /opt/pulsegrid/scripts/verify.sh https://example.com:8080 "$(sudo cat /etc/pulsegrid/token)"
 ```
 
----
+Local development defaults to HTTP and does not launch Xray without its binary,
+domain and certificates. Production TLS is enabled by the generated systemd
+configuration. The Doctor verifies certificates; unchecked or failed TLS nodes
+are not included in subscriptions. Install/update/status operations require root.
 
-## 🔒 Security & Compliance
+## Important limitations
 
-- Token-based admin auth (Bearer). Change the token after install.
-- Bind to `127.0.0.1` behind a reverse proxy (nginx/Caddy) with HTTPS in production.
-- All network configurations must respect applicable laws and regulations in your jurisdiction.
-- PulseGrid manages *your own* infrastructure; you are responsible for lawful use.
+- The managed core is VLESS over TCP with TLS. The preset selection is advisory;
+  it does **not** reconfigure the core. External nodes require their own setup.
+- Traffic measurement and quota enforcement are **not integrated with Xray**.
+  Do not use the quota display for billing or as an access-control guarantee.
+- User changes and expiry are synchronized approximately every five seconds;
+  existing connections may remain open. Do not rely on immediate revocation.
+- The health score reflects the latest check, not continuous monitoring. Run
+  **Check all health** before copying a new subscription.
+- Use only in accordance with applicable laws and regulations.
 
----
-
-## 📄 Documentation
-
-- [Product Concept](docs/PRODUCT.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-
-## 📜 License
-
-MIT — see `LICENSE` if present, otherwise treat as MIT for this template.
+See [architecture](docs/ARCHITECTURE.md), [product](docs/PRODUCT.md), and
+[troubleshooting](docs/TROUBLESHOOTING.md). MIT license.
